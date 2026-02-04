@@ -175,5 +175,8 @@ websocket.on("connection", async (ws) => {
 - [Sending generated audio through Twilio](https://elevenlabs.io/docs/cookbooks/text-to-speech/twilio)
 - [Learn how to configure inbound calls for your agent with Twilio.](https://elevenlabs.io/docs/conversational-ai/guides/twilio/dashboard)
 
+## ⭐ Star History
 
-check out the blog [here](https://medium.com/@programmerraja/automating-conversations-building-a-smart-call-agent-using-twilio-and-elevenlabs-37b6acfba3eb)
+[![Star History Chart](https://api.star-history.com/svg?repos=programmerraja/CallAgent&type=date&legend=top-left)](https://www.star-history.com/#programmerraja/CallAgent&type=date&legend=top-left)
+
+
