@@ -1,5 +1,5 @@
 {
-  "name": "HealthSync AI Voice Assistant",
+  "name": "med_ai Voice Assistant",
   "description": "A high-performance POC for a healthcare-focused real-time voice assistant powered by Gemini. Features appointment booking, symptom analysis, and clinical tool integration.",
   "requestFramePermissions": [
     "microphone"

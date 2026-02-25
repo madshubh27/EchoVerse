@@ -1,10 +1,21 @@
 
 import React from 'react';
+import DarkModeToggle from './DarkModeToggle';
+import LanguageSelector from './LanguageSelector';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
+  language: string;
+  onLanguageChange: (lang: string) => void;
+  onOpenProfile: () => void;
+  onOpenHistory: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ darkMode, onToggleDarkMode, language, onLanguageChange, onOpenProfile, onOpenHistory }) => {
   return (
-    <header className="bg-white border-b sticky top-0 z-30 shadow-sm">
-      <div className="container mx-auto px-6 h-16 flex items-center justify-between">
+    <header className="bg-white border-b sticky top-0 z-30 shadow-sm no-print">
+      <div className="container mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -12,19 +23,42 @@ const Header: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">HealthSync <span className="text-blue-600">AI</span></h1>
+            <h1 className="text-xl font-bold text-slate-800">med<span className="text-blue-600">_ai</span></h1>
             <p className="text-xs text-slate-400 font-medium">REALTIME VOICE CARE</p>
           </div>
         </div>
 
-        <nav className="hidden md:flex items-center space-x-6">
-          <div className="flex items-center text-sm font-medium text-slate-600">
+        <nav className="flex items-center space-x-2 sm:space-x-4">
+          <div className="hidden sm:flex items-center text-sm font-medium text-slate-600">
             <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-            Gemini Live 2.5 Active
+            Gemini Live 2.5
           </div>
-          <button className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-full font-semibold transition-colors">
-            Support
+
+          <LanguageSelector selectedLanguage={language} onLanguageChange={onLanguageChange} />
+
+          {/* History Button */}
+          <button
+            onClick={onOpenHistory}
+            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-slate-100 transition-colors"
+            title="Call History"
+          >
+            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </button>
+
+          {/* Profile Button */}
+          <button
+            onClick={onOpenProfile}
+            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-slate-100 transition-colors"
+            title="Patient Profile"
+          >
+            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </button>
+
+          <DarkModeToggle darkMode={darkMode} onToggle={onToggleDarkMode} />
         </nav>
       </div>
     </header>

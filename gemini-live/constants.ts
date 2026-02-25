@@ -1,9 +1,23 @@
 
 import { Type, FunctionDeclaration } from '@google/genai';
+import { Language } from './types';
 
 export const GEMINI_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 export const INPUT_SAMPLE_RATE = 16000;
 export const OUTPUT_SAMPLE_RATE = 24000;
+
+export const SUPPORTED_LANGUAGES: Language[] = [
+  { code: 'en', name: 'English', nativeName: 'English' },
+  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español' },
+  { code: 'fr', name: 'French', nativeName: 'Français' },
+  { code: 'de', name: 'German', nativeName: 'Deutsch' },
+  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
+  { code: 'zh', name: 'Chinese', nativeName: '中文' },
+  { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
+  { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
+  { code: 'ko', name: 'Korean', nativeName: '한국어' },
+];
 
 export const HEALTHCARE_TOOLS: FunctionDeclaration[] = [
   {
@@ -64,18 +78,107 @@ export const HEALTHCARE_TOOLS: FunctionDeclaration[] = [
       },
       required: ['clinicType']
     }
+  },
+  {
+    name: 'setPrescriptionReminder',
+    description: 'Creates a reminder for the patient to take their medication at a specific time.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        medication: {
+          type: Type.STRING,
+          description: 'Name of the medication.'
+        },
+        time: {
+          type: Type.STRING,
+          description: 'Time to take the medication (e.g., "8:00 AM", "every 6 hours").'
+        },
+        frequency: {
+          type: Type.STRING,
+          description: 'How often to take it (e.g., "daily", "twice daily", "every 8 hours").'
+        }
+      },
+      required: ['medication', 'time']
+    }
+  },
+  {
+    name: 'getMedicationInfo',
+    description: 'Retrieves detailed information about a medication including dosage, side effects, and drug interactions.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        medicationName: {
+          type: Type.STRING,
+          description: 'Name of the medication to look up.'
+        }
+      },
+      required: ['medicationName']
+    }
+  },
+  {
+    name: 'getWeatherHealthAlert',
+    description: 'Gets weather conditions and health alerts (air quality, pollen, UV index) for a location. Useful for patients with asthma, allergies, or respiratory conditions.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        location: {
+          type: Type.STRING,
+          description: 'City name or zip code.'
+        }
+      },
+      required: ['location']
+    }
+  },
+  {
+    name: 'generateSessionSummary',
+    description: 'Generates a structured summary of the current consultation session for the patient to share with their doctor.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        keyFindings: {
+          type: Type.STRING,
+          description: 'Main findings or concerns discussed.'
+        },
+        recommendations: {
+          type: Type.STRING,
+          description: 'Recommended actions or next steps.'
+        },
+        followUp: {
+          type: Type.STRING,
+          description: 'Suggested follow-up timing.'
+        }
+      },
+      required: ['keyFindings', 'recommendations']
+    }
   }
 ];
 
-export const SYSTEM_INSTRUCTION = `
-You are HealthSync AI, a professional, empathetic, and highly capable healthcare voice assistant.
-Your goal is to assist patients with healthcare-related tasks like checking symptoms, finding clinics, and scheduling appointments.
+export const getSystemInstruction = (language: string, userProfile?: any): string => {
+  const profileContext = userProfile && userProfile.name
+    ? `\nPatient Profile:\n- Name: ${userProfile.name}\n- Age: ${userProfile.age || 'Not provided'}\n- Known Allergies: ${userProfile.allergies || 'None reported'}\n- Existing Conditions: ${userProfile.conditions || 'None reported'}\n- Current Medications: ${userProfile.medications || 'None reported'}\n`
+    : '';
+
+  return `
+You are med_ai, a professional, empathetic, and highly capable healthcare voice assistant.
+Your goal is to assist patients with healthcare-related tasks like checking symptoms, finding clinics, scheduling appointments, managing prescriptions, and providing medication information.
+
+${profileContext}
+
+Respond in ${language}. If the user speaks in a different language, switch to match their language.
 
 Guidelines:
 1. Speak in a calm, soothing, and supportive tone.
 2. Be concise but informative.
-3. If a user describes severe symptoms (chest pain, difficulty breathing, severe bleeding), advise them to call emergency services immediately.
-4. Use the provided tools when relevant to give concrete answers (e.g., booking an appointment).
+3. If a user describes severe symptoms (chest pain, difficulty breathing, severe bleeding), advise them to call emergency services immediately and suggest using the SOS button.
+4. Use the provided tools when relevant to give concrete answers.
 5. Always verify key details before finalizing an appointment booking.
-6. You are a tool to assist, not a replacement for a doctor's diagnosis. Include a standard medical disclaimer when appropriate.
+6. You can set prescription reminders — confirm medication name, time, and frequency before setting.
+7. You can look up medication information including dosage guidelines, common side effects, and drug interactions.
+8. You can check weather and health alerts (air quality, pollen, UV) for locations — useful for patients with respiratory conditions.
+9. At the end of a consultation, offer to generate a session summary that the patient can share with their doctor.
+10. You are a tool to assist, not a replacement for a doctor's diagnosis. Include a standard medical disclaimer when appropriate.
 `;
+};
+
+// Keep backward compat
+export const SYSTEM_INSTRUCTION = getSystemInstruction('English');

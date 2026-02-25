@@ -1,21 +1,143 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HealthSync AI - Healthcare Voice Assistant</title>
+  <title>med_ai - Healthcare Voice Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+    }
+  </script>
   <style>
     body {
       font-family: 'Inter', sans-serif;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .light body,
+    html.light body {
       background-color: #f8fafc;
     }
+
+    html.dark body {
+      background-color: #0f172a;
+      color: #e2e8f0;
+    }
+
+    html.dark .bg-white {
+      background-color: #1e293b !important;
+    }
+
+    html.dark .bg-slate-50 {
+      background-color: #1e293b !important;
+    }
+
+    html.dark .border-slate-100 {
+      border-color: #334155 !important;
+    }
+
+    html.dark .text-slate-800 {
+      color: #f1f5f9 !important;
+    }
+
+    html.dark .text-slate-700 {
+      color: #e2e8f0 !important;
+    }
+
+    html.dark .text-slate-600 {
+      color: #cbd5e1 !important;
+    }
+
+    html.dark .text-slate-500 {
+      color: #94a3b8 !important;
+    }
+
+    html.dark .text-slate-400 {
+      color: #64748b !important;
+    }
+
+    html.dark .bg-slate-100 {
+      background-color: #334155 !important;
+    }
+
+    html.dark .border-b {
+      border-color: #334155 !important;
+    }
+
+    html.dark .border-t {
+      border-color: #334155 !important;
+    }
+
+    html.dark .shadow-sm {
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    html.dark .bg-slate-50\/50 {
+      background-color: rgba(30, 41, 59, 0.5) !important;
+    }
+
+    html.dark .bg-green-50 {
+      background-color: rgba(34, 197, 94, 0.1) !important;
+    }
+
+    html.dark .border-green-100 {
+      border-color: rgba(34, 197, 94, 0.2) !important;
+    }
+
+    html.dark .text-green-700 {
+      color: #4ade80 !important;
+    }
+
+    html.dark .border-slate-200 {
+      border-color: #475569 !important;
+    }
+
+    @keyframes waveform {
+
+      0%,
+      100% {
+        height: 4px;
+      }
+
+      50% {
+        height: var(--wave-height, 24px);
+      }
+    }
+
+    .wave-bar {
+      animation: waveform 0.6s ease-in-out infinite;
+    }
+
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+
+      .print-only {
+        display: block !important;
+      }
+
+      html.dark body {
+        background: white !important;
+        color: black !important;
+      }
+
+      html.dark .bg-white {
+        background-color: white !important;
+      }
+
+      html.dark .text-slate-800 {
+        color: black !important;
+      }
+    }
   </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
     "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
@@ -25,10 +147,12 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/index.css">
 </head>
+
 <body>
   <div id="root"></div>
-<script type="module" src="/index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
 </body>
+
 </html>
