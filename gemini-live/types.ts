@@ -6,6 +6,18 @@ export enum SessionStatus {
   ERROR = 'ERROR'
 }
 
+export interface Appointment {
+  id: string;
+  patientName: string;
+  doctorSpecialty: string;
+  preferredDate: string;
+  preferredTime: string;
+  notes: string;
+  status: 'upcoming' | 'completed' | 'cancelled';
+  bookedAt: number;
+  bookedVia: 'manual' | 'voice';
+}
+
 export interface TranscriptionEntry {
   role: 'user' | 'assistant';
   text: string;

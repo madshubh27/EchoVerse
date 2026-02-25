@@ -24,6 +24,7 @@ interface VoiceAgentProps {
   userProfile: UserProfileType;
   onSessionEnd: (startTime: number) => void;
   selectedVoiceId: string;
+  onVoiceBookAppointment: (dept: string, time: string, reason: string) => void;
 }
 
 const VoiceAgent: React.FC<VoiceAgentProps> = ({
@@ -39,6 +40,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
   userProfile,
   onSessionEnd,
   selectedVoiceId,
+  onVoiceBookAppointment,
 }) => {
   const sessionRef = useRef<any>(null);
   const audioContextInRef = useRef<AudioContext | null>(null);
@@ -52,7 +54,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
 
   const currentInputTranscription = useRef<string>('');
 
-  const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY || '';
+  const elevenLabsApiKey = import.meta.env.VITE_ELEVENLABS_API_KEY || '';
 
   const encode = (bytes: Uint8Array) => {
     let binary = '';
@@ -103,6 +105,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
       case 'checkSymptomSeverity':
         return `Severity: Moderate. Recommended action: Please visit an urgent care center within 24 hours for evaluation. Symptoms analyzed: ${(args.symptoms || []).join(', ')}.`;
       case 'bookAppointment':
+        onVoiceBookAppointment(args.department, args.preferredTime, args.reason || '');
         return `Appointment provisionally scheduled for ${args.preferredTime} in ${args.department}. Confirmation sent to your profile.`;
       case 'findNearbyClinic':
         return `Found 3 ${args.clinicType} facilities near ${args.location || 'your location'}: 1) CityMed ${args.clinicType} (0.8 mi), 2) HealthFirst Center (1.2 mi), 3) Community ${args.clinicType} (2.1 mi).`;
@@ -136,12 +139,20 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
     if (status === SessionStatus.CONNECTING) {
       const connect = async () => {
         try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
           // Input audio context (mic)
           audioContextInRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
+          // Ensure context is resumed (required by most browsers)
+          if (audioContextInRef.current.state === 'suspended') {
+            await audioContextInRef.current.resume();
+          }
+
           // Output audio context (ElevenLabs)
           audioContextOutRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+          if (audioContextOutRef.current.state === 'suspended') {
+            await audioContextOutRef.current.resume();
+          }
 
           // Init ElevenLabs TTS
           ttsRef.current = new ElevenLabsTTS(elevenLabsApiKey, selectedVoiceId, audioContextOutRef.current);
@@ -177,10 +188,20 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
                 analyser.connect(scriptProcessor);
 
                 scriptProcessor.onaudioprocess = (e) => {
+                  if (status !== SessionStatus.ACTIVE) return;
+
                   const inputData = e.inputBuffer.getChannelData(0);
                   const pcmBlob = createBlob(inputData);
+
+                  // Only send if session is active and open
                   sessionPromise.then(session => {
-                    session.sendRealtimeInput({ media: pcmBlob });
+                    if (session && sessionRef.current) {
+                      try {
+                        session.sendRealtimeInput({ media: pcmBlob });
+                      } catch (err) {
+                        console.warn('Failed to send audio chunk:', err);
+                      }
+                    }
                   });
                 };
 
@@ -310,8 +331,8 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
         {/* ElevenLabs status indicator */}
         {status === SessionStatus.IDLE && (
           <div className={`inline-flex items-center space-x-1.5 text-xs px-3 py-1 rounded-full mt-1 ${hasElevenLabsKey
-              ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-              : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+            ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+            : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
             }`}>
             <span className={`w-1.5 h-1.5 rounded-full ${hasElevenLabsKey ? 'bg-purple-500' : 'bg-amber-500'}`}></span>
             <span>{hasElevenLabsKey ? 'ElevenLabs TTS Active' : 'ElevenLabs API key not set — add to .env.local'}</span>

@@ -10,7 +10,9 @@ import UserProfileModal from './components/UserProfile';
 import CallHistory from './components/CallHistory';
 import SessionSummary from './components/SessionSummary';
 import VoiceSelector from './components/VoiceSelector';
+import AppointmentModal from './components/AppointmentModal';
 import { DEFAULT_VOICE_ID } from './services/elevenlabs';
+import { Appointment } from './types';
 
 const STORAGE_KEYS = {
   DARK_MODE: 'medai_darkMode',
@@ -18,6 +20,7 @@ const STORAGE_KEYS = {
   PROFILE: 'medai_userProfile',
   SESSIONS: 'medai_sessions',
   VOICE_ID: 'medai_voiceId',
+  APPOINTMENTS: 'medai_appointments',
 };
 
 const defaultProfile: UserProfileType = {
@@ -57,11 +60,18 @@ const App: React.FC = () => {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(() => {
     try { return localStorage.getItem(STORAGE_KEYS.VOICE_ID) || DEFAULT_VOICE_ID; } catch { return DEFAULT_VOICE_ID; }
   });
+  const [appointments, setAppointments] = useState<Appointment[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.APPOINTMENTS);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
 
   // UI modals
   const [showProfile, setShowProfile] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [showAppointments, setShowAppointments] = useState(false);
   const [lastSessionDuration, setLastSessionDuration] = useState(0);
 
   // Dark mode effect
@@ -91,6 +101,26 @@ const App: React.FC = () => {
   const handleVoiceChange = (voiceId: string) => {
     setSelectedVoiceId(voiceId);
     try { localStorage.setItem(STORAGE_KEYS.VOICE_ID, voiceId); } catch { }
+  };
+
+  // Persist appointments
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments)); } catch { }
+  }, [appointments]);
+
+  const handleBookAppointment = (appt: Omit<Appointment, 'id' | 'bookedAt' | 'status' | 'bookedVia'>, via: 'manual' | 'voice' = 'manual') => {
+    const newAppt: Appointment = {
+      ...appt,
+      id: crypto.randomUUID(),
+      bookedAt: Date.now(),
+      status: 'upcoming',
+      bookedVia: via
+    };
+    setAppointments(prev => [...prev, newAppt]);
+  };
+
+  const handleCancelAppointment = (id: string) => {
+    setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a));
   };
 
   // Handlers
@@ -161,6 +191,7 @@ const App: React.FC = () => {
         onLanguageChange={setLanguage}
         onOpenProfile={() => setShowProfile(true)}
         onOpenHistory={() => setShowHistory(true)}
+        onOpenAppointments={() => setShowAppointments(true)}
       />
 
       <main className="flex-1 container mx-auto p-4 sm:p-6 space-y-6">
@@ -180,6 +211,13 @@ const App: React.FC = () => {
               userProfile={userProfile}
               onSessionEnd={handleSessionEnd}
               selectedVoiceId={selectedVoiceId}
+              onVoiceBookAppointment={(dept, time, res) => handleBookAppointment({
+                patientName: userProfile.name || 'Patient',
+                doctorSpecialty: dept,
+                preferredDate: time.split('T')[0] || new Date().toISOString().split('T')[0],
+                preferredTime: '10:00 AM', // Default for voice
+                notes: res || ''
+              }, 'voice')}
             />
 
             <VoiceSelector
@@ -242,6 +280,15 @@ const App: React.FC = () => {
         transcriptions={transcriptions}
         toolCalls={toolActivities}
         language={language}
+      />
+
+      <AppointmentModal
+        isOpen={showAppointments}
+        onClose={() => setShowAppointments(false)}
+        appointments={appointments}
+        onBook={handleBookAppointment}
+        onCancel={handleCancelAppointment}
+        patientName={userProfile.name}
       />
     </div>
   );
