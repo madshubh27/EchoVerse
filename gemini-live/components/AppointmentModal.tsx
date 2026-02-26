@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { Appointment } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Appointment, ConsultType, WaitlistEntry } from '../types';
+import ConsultTypeSelector from './ConsultTypeSelector';
+import { canBook, incrementBooking, decrementBooking, getCapacityInfo, getNextAvailableDate, addToWaitlist, getWaitlist, removeFromWaitlist, getWaitlistPosition } from '../services/capacity';
+import { classifySeverity } from '../services/severity';
 
 interface AppointmentModalProps {
     isOpen: boolean;
@@ -25,265 +28,299 @@ const TIME_SLOTS = [
 const AppointmentModal: React.FC<AppointmentModalProps> = ({
     isOpen, appointments, onBook, onCancel, onClose, patientName,
 }) => {
-    const [tab, setTab] = useState<'upcoming' | 'book'>('upcoming');
+    const [tab, setTab] = useState<'upcoming' | 'book' | 'waitlist'>('upcoming');
     const [form, setForm] = useState({
         patientName: patientName || '',
         doctorSpecialty: SPECIALTIES[0],
         preferredDate: '',
         preferredTime: TIME_SLOTS[0],
         notes: '',
+        consultType: 'voice' as ConsultType,
+        symptoms: '',
     });
     const [submitted, setSubmitted] = useState(false);
     const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
+    const [capacityInfo, setCapacityInfo] = useState<{ booked: number; available: number; isFull: boolean } | null>(null);
+    const [nextAvailable, setNextAvailable] = useState<string | null>(null);
+    const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
+    const [joinedWaitlistId, setJoinedWaitlistId] = useState<string | null>(null);
 
-    // Filter appointments
     const upcoming = appointments.filter(a => a.status === 'upcoming');
     const past = appointments.filter(a => a.status !== 'upcoming');
-
     const today = new Date().toISOString().split('T')[0];
+
+    // Update capacity when specialty/date changes
+    useEffect(() => {
+        if (form.doctorSpecialty && form.preferredDate) {
+            const info = getCapacityInfo(form.doctorSpecialty, form.preferredDate);
+            setCapacityInfo(info);
+            if (info.isFull) {
+                setNextAvailable(getNextAvailableDate(form.doctorSpecialty, form.preferredDate));
+            } else {
+                setNextAvailable(null);
+            }
+        }
+    }, [form.doctorSpecialty, form.preferredDate]);
+
+    useEffect(() => {
+        setWaitlist(getWaitlist());
+    }, [tab]);
 
     if (!isOpen) return null;
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!form.preferredDate) return;
-        onBook(form);
+
+        // Check capacity before booking
+        if (capacityInfo?.isFull) return;
+
+        // Classify severity if symptoms given
+        const severityResult = form.symptoms
+            ? classifySeverity([form.symptoms])
+            : null;
+
+        onBook({
+            patientName: form.patientName,
+            doctorSpecialty: form.doctorSpecialty,
+            preferredDate: form.preferredDate,
+            preferredTime: form.preferredTime,
+            notes: form.notes,
+            consultType: form.consultType,
+            severity: severityResult?.level,
+        });
+        incrementBooking(form.doctorSpecialty, form.preferredDate);
         setSubmitted(true);
         setTimeout(() => {
             setSubmitted(false);
             setTab('upcoming');
-            setForm(f => ({ ...f, preferredDate: '', notes: '' }));
-        }, 2000);
+        }, 2500);
     };
 
-    const formatDate = (dateStr: string) => {
-        try {
-            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-            });
-        } catch { return dateStr; }
+    const handleJoinWaitlist = () => {
+        if (!form.preferredDate) return;
+        const severityResult = form.symptoms ? classifySeverity([form.symptoms]) : null;
+        const entry = addToWaitlist({
+            patientName: form.patientName || patientName,
+            doctorSpecialty: form.doctorSpecialty,
+            preferredDate: form.preferredDate,
+            severityScore: severityResult?.score || 3,
+        });
+        setJoinedWaitlistId(entry.id);
+        setWaitlist(getWaitlist());
     };
 
-    const statusColors: Record<string, string> = {
-        upcoming: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
-        completed: 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400',
-        cancelled: 'bg-red-50 text-red-500 dark:bg-red-900/30 dark:text-red-400',
+    const handleRemoveFromWaitlist = (id: string) => {
+        removeFromWaitlist(id);
+        setWaitlist(getWaitlist());
+        if (joinedWaitlistId === id) setJoinedWaitlistId(null);
+    };
+
+    const handleCancel = (id: string, specialty: string, date: string) => {
+        onCancel(id);
+        decrementBooking(specialty, date);
+        setCancelConfirm(null);
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-xl shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-700/50 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
                 {/* Header */}
-                <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-                    <div className="flex items-center space-x-3">
-                        <div className="w-9 h-9 bg-blue-100 dark:bg-blue-900/50 rounded-xl flex items-center justify-center">
-                            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h2 className="text-base font-bold text-slate-800 dark:text-white">Appointments</h2>
-                            <p className="text-xs text-slate-400">{upcoming.length} upcoming</p>
-                        </div>
-                    </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                <div className="flex items-center justify-between p-5 border-b border-slate-700/50 shrink-0">
+                    <h2 className="text-lg font-bold text-white">📅 Appointments</h2>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors">×</button>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-                    <button
-                        onClick={() => setTab('upcoming')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors ${tab === 'upcoming' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                    >
-                        My Appointments
-                    </button>
-                    <button
-                        onClick={() => setTab('book')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors ${tab === 'book' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                    >
-                        + Book New
-                    </button>
+                <div className="flex border-b border-slate-700/50 shrink-0">
+                    {(['upcoming', 'book', 'waitlist'] as const).map(t => (
+                        <button
+                            key={t}
+                            onClick={() => setTab(t)}
+                            className={`flex-1 py-2.5 text-sm font-medium transition-colors capitalize ${tab === t ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                            {t === 'upcoming' ? `Upcoming (${upcoming.length})` : t === 'waitlist' ? `Waitlist (${waitlist.length})` : 'Book'}
+                        </button>
+                    ))}
                 </div>
 
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-5">
-                    {tab === 'upcoming' ? (
-                        <div className="space-y-4">
-                            {upcoming.length === 0 && past.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <div className="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
-                                        <svg className="w-7 h-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        </svg>
-                                    </div>
-                                    <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">No appointments yet</p>
-                                    <p className="text-slate-400 text-xs mt-1">Book one manually or ask the AI during a call</p>
-                                    <button
-                                        onClick={() => setTab('book')}
-                                        className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm px-5 py-2 rounded-full font-semibold transition-all"
-                                    >
-                                        Book Your First Appointment
-                                    </button>
+                <div className="overflow-y-auto flex-1 p-5">
+                    {/* ── UPCOMING ── */}
+                    {tab === 'upcoming' && (
+                        <div className="space-y-3">
+                            {upcoming.length === 0 && past.length === 0 && (
+                                <div className="text-center py-10 text-slate-400">
+                                    <div className="text-4xl mb-3">📅</div>
+                                    <div className="font-medium">No appointments yet</div>
+                                    <button onClick={() => setTab('book')} className="mt-3 text-cyan-400 underline text-sm">Book your first appointment</button>
                                 </div>
-                            ) : (
+                            )}
+                            {upcoming.map(appt => {
+                                const consultIcon = appt.consultType === 'voice' ? '📞' : appt.consultType === 'video' ? '📹' : '🏥';
+                                const severityBadge = appt.severity === 'severe' ? '🚨' : appt.severity === 'moderate' ? '⚠️' : appt.severity === 'mild' ? '✅' : '';
+                                return (
+                                    <div key={appt.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="font-semibold text-slate-100 text-sm">{appt.doctorSpecialty}</span>
+                                                    <span className="text-xs">{consultIcon}</span>
+                                                    {severityBadge && <span className="text-xs">{severityBadge}</span>}
+                                                </div>
+                                                <div className="text-xs text-slate-400 mt-0.5">{appt.preferredDate} at {appt.preferredTime}</div>
+                                                {appt.consultType && (
+                                                    <div className="text-xs text-slate-500 mt-0.5 capitalize">{appt.consultType} consultation</div>
+                                                )}
+                                            </div>
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400">Upcoming</span>
+                                        </div>
+                                        {appt.notes && <div className="text-xs text-slate-400 bg-slate-900/50 rounded-lg p-2">{appt.notes}</div>}
+                                        {cancelConfirm === appt.id ? (
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleCancel(appt.id, appt.doctorSpecialty, appt.preferredDate)} className="flex-1 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs rounded-lg transition-colors">Confirm Cancel</button>
+                                                <button onClick={() => setCancelConfirm(null)} className="flex-1 py-1.5 bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors">Keep</button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => setCancelConfirm(appt.id)} className="text-xs text-red-400 hover:text-red-300 transition-colors">Cancel appointment</button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {past.length > 0 && (
                                 <>
-                                    {upcoming.length > 0 && (
-                                        <div>
-                                            <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">Upcoming</h3>
-                                            <div className="space-y-3">
-                                                {upcoming.map(appt => (
-                                                    <div key={appt.id} className="border border-blue-100 dark:border-slate-700 rounded-xl p-4 bg-blue-50/40 dark:bg-slate-800/50">
-                                                        <div className="flex items-start justify-between">
-                                                            <div className="flex-1">
-                                                                <div className="flex items-center space-x-2 mb-1">
-                                                                    <p className="font-bold text-slate-800 dark:text-white text-sm">{appt.doctorSpecialty}</p>
-                                                                    {appt.bookedVia === 'voice' && (
-                                                                        <span className="text-[10px] bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full font-semibold">AI Booked</span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1">
-                                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                                    <span>{formatDate(appt.preferredDate)}</span>
-                                                                </p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 mt-0.5">
-                                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                                    <span>{appt.preferredTime}</span>
-                                                                </p>
-                                                                {appt.notes && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">"{appt.notes}"</p>}
-                                                            </div>
-                                                            <div className="flex flex-col items-end space-y-2 ml-3">
-                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusColors[appt.status]}`}>
-                                                                    {appt.status}
-                                                                </span>
-                                                                {cancelConfirm === appt.id ? (
-                                                                    <div className="flex space-x-1">
-                                                                        <button onClick={() => { onCancel(appt.id); setCancelConfirm(null); }} className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full">Confirm</button>
-                                                                        <button onClick={() => setCancelConfirm(null)} className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">No</button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <button onClick={() => setCancelConfirm(appt.id)} className="text-[10px] text-red-500 hover:text-red-600 underline">Cancel</button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                    <div className="text-xs text-slate-500 pt-2 uppercase tracking-wider">Past</div>
+                                    {past.map(appt => (
+                                        <div key={appt.id} className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4 opacity-60">
+                                            <div className="font-semibold text-slate-300 text-sm">{appt.doctorSpecialty}</div>
+                                            <div className="text-xs text-slate-500">{appt.preferredDate} · {appt.status}</div>
                                         </div>
-                                    )}
-
-                                    {past.length > 0 && (
-                                        <div className="mt-6">
-                                            <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">Past</h3>
-                                            <div className="space-y-2">
-                                                {past.map(appt => (
-                                                    <div key={appt.id} className="border border-slate-100 dark:border-slate-800 rounded-xl p-3 opacity-60">
-                                                        <div className="flex items-center justify-between">
-                                                            <div>
-                                                                <p className="font-semibold text-slate-700 dark:text-slate-300 text-sm">{appt.doctorSpecialty}</p>
-                                                                <p className="text-xs text-slate-400">{formatDate(appt.preferredDate)} · {appt.preferredTime}</p>
-                                                            </div>
-                                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusColors[appt.status]}`}>{appt.status}</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                    ))}
                                 </>
                             )}
                         </div>
-                    ) : (
+                    )}
+
+                    {/* ── BOOK ── */}
+                    {tab === 'book' && (
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {submitted ? (
-                                <div className="text-center py-12">
-                                    <div className="w-14 h-14 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-3">
-                                        <svg className="w-7 h-7 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    </div>
-                                    <p className="font-bold text-slate-800 dark:text-white">Appointment Booked!</p>
-                                    <p className="text-xs text-slate-500 mt-1">Redirecting to your appointments...</p>
+                                <div className="text-center py-10 space-y-2">
+                                    <div className="text-4xl">✅</div>
+                                    <div className="text-slate-200 font-semibold">Appointment Booked!</div>
+                                    <div className="text-slate-400 text-sm">Your appointment has been confirmed.</div>
                                 </div>
                             ) : (
                                 <>
+                                    {/* Patient Name */}
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Patient Name</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            value={form.patientName}
-                                            onChange={e => setForm(f => ({ ...f, patientName: e.target.value }))}
-                                            placeholder="Your full name"
-                                            className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-                                        />
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Patient Name</label>
+                                        <input value={form.patientName} onChange={e => setForm(f => ({ ...f, patientName: e.target.value }))}
+                                            className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                                            placeholder="Your full name" required />
                                     </div>
 
+                                    {/* Specialty */}
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Doctor Specialty</label>
-                                        <select
-                                            value={form.doctorSpecialty}
-                                            onChange={e => setForm(f => ({ ...f, doctorSpecialty: e.target.value }))}
-                                            className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-                                        >
-                                            {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Doctor Specialty</label>
+                                        <select value={form.doctorSpecialty} onChange={e => setForm(f => ({ ...f, doctorSpecialty: e.target.value }))}
+                                            className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                                            {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
                                         </select>
                                     </div>
 
+                                    {/* Date + Time */}
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Preferred Date</label>
-                                            <input
-                                                type="date"
-                                                required
-                                                min={today}
-                                                value={form.preferredDate}
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Date</label>
+                                            <input type="date" value={form.preferredDate} min={today}
                                                 onChange={e => setForm(f => ({ ...f, preferredDate: e.target.value }))}
-                                                className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-                                            />
+                                                className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500" required />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Time Slot</label>
-                                            <select
-                                                value={form.preferredTime}
-                                                onChange={e => setForm(f => ({ ...f, preferredTime: e.target.value }))}
-                                                className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-                                            >
-                                                {TIME_SLOTS.map(t => <option key={t} value={t}>{t}</option>)}
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Time</label>
+                                            <select value={form.preferredTime} onChange={e => setForm(f => ({ ...f, preferredTime: e.target.value }))}
+                                                className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                                                {TIME_SLOTS.map(t => <option key={t}>{t}</option>)}
                                             </select>
                                         </div>
                                     </div>
 
+                                    {/* Capacity warning */}
+                                    {capacityInfo && form.preferredDate && (
+                                        <div className={`text-xs rounded-xl px-3 py-2 ${capacityInfo.isFull ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-green-500/10 text-green-400 border border-green-500/20'}`}>
+                                            {capacityInfo.isFull
+                                                ? `⚠️ This slot is full. Next available: ${nextAvailable}. Join the waitlist below.`
+                                                : `✅ ${capacityInfo.available} slot${capacityInfo.available !== 1 ? 's' : ''} available`}
+                                        </div>
+                                    )}
+
+                                    {/* Consult Type */}
+                                    <ConsultTypeSelector
+                                        selected={form.consultType}
+                                        onChange={ct => setForm(f => ({ ...f, consultType: ct }))}
+                                    />
+
+                                    {/* Symptoms (optional) */}
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Notes <span className="font-normal text-slate-400">(optional)</span></label>
-                                        <textarea
-                                            value={form.notes}
-                                            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                                            placeholder="Describe your symptoms or reason for visit..."
-                                            rows={3}
-                                            className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all resize-none"
-                                        />
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Symptoms (optional)</label>
+                                        <input value={form.symptoms} onChange={e => setForm(f => ({ ...f, symptoms: e.target.value }))}
+                                            className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                                            placeholder="e.g. fever, chest pain..." />
                                     </div>
 
-                                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-xs text-blue-600 dark:text-blue-400 flex items-start space-x-2">
-                                        <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
-                                        </svg>
-                                        <span>You can also book by voice — just say <em>"Book a cardiology appointment for next Monday at 10 AM"</em> during a call.</span>
+                                    {/* Notes */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1">Notes</label>
+                                        <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                                            className="w-full bg-slate-800 border border-slate-600 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 resize-none h-16"
+                                            placeholder="Additional information..." />
                                     </div>
 
-                                    <button
-                                        type="submit"
-                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-blue-200 dark:shadow-blue-900/30"
-                                    >
-                                        Confirm Appointment
-                                    </button>
+                                    {/* Submit or Waitlist */}
+                                    {capacityInfo?.isFull ? (
+                                        <button type="button" onClick={handleJoinWaitlist}
+                                            className="w-full py-3 bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-semibold rounded-xl transition-colors">
+                                            📋 Join Waitlist
+                                        </button>
+                                    ) : (
+                                        <button type="submit"
+                                            className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white text-sm font-semibold rounded-xl transition-all shadow-lg">
+                                            Confirm Appointment
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </form>
+                    )}
+
+                    {/* ── WAITLIST ── */}
+                    {tab === 'waitlist' && (
+                        <div className="space-y-3">
+                            {waitlist.length === 0 ? (
+                                <div className="text-center py-10 text-slate-400">
+                                    <div className="text-4xl mb-3">📋</div>
+                                    <div className="font-medium">No waitlist entries</div>
+                                    <p className="text-sm mt-1">When a slot is full, join the waitlist to get notified of openings.</p>
+                                </div>
+                            ) : (
+                                waitlist.map((entry, idx) => (
+                                    <div key={entry.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="font-semibold text-slate-100 text-sm">{entry.doctorSpecialty}</div>
+                                                <div className="text-xs text-slate-400">{entry.preferredDate} · Priority #{idx + 1}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-xs px-2 py-0.5 rounded-full ${entry.severityScore >= 8 ? 'bg-red-500/20 text-red-400' : entry.severityScore >= 4 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}`}>
+                                                    Score: {entry.severityScore}
+                                                </span>
+                                                <button onClick={() => handleRemoveFromWaitlist(entry.id)} className="text-red-400 hover:text-red-300 text-xs transition-colors">Remove</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { SessionStatus, TranscriptionEntry, ToolCallEntry, UserProfile as UserProfileType, SessionRecord } from './types';
+import { SessionStatus, TranscriptionEntry, ToolCallEntry, UserProfile as UserProfileType, SessionRecord, SeverityResult } from './types';
 import Header from './components/Header';
 import VoiceAgent from './components/VoiceAgent';
 import TranscriptionView from './components/TranscriptionView';
@@ -11,8 +11,13 @@ import CallHistory from './components/CallHistory';
 import SessionSummary from './components/SessionSummary';
 import VoiceSelector from './components/VoiceSelector';
 import AppointmentModal from './components/AppointmentModal';
+import SeverityBanner from './components/SeverityBanner';
+import FollowUpMonitor from './components/FollowUpMonitor';
+import LoadDashboard from './components/LoadDashboard';
 import { DEFAULT_VOICE_ID } from './services/elevenlabs';
 import { Appointment } from './types';
+import { classifySeverityFromText } from './services/severity';
+import { checkRedFlags } from './services/redFlags';
 
 const STORAGE_KEYS = {
   DARK_MODE: 'medai_darkMode',
@@ -72,7 +77,13 @@ const App: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [showAppointments, setShowAppointments] = useState(false);
+  const [showLoadDashboard, setShowLoadDashboard] = useState(false);
   const [lastSessionDuration, setLastSessionDuration] = useState(0);
+
+  // Severity & Red Flags
+  const [severityResult, setSeverityResult] = useState<SeverityResult | null>(null);
+  const [symptomInput, setSymptomInput] = useState('');
+  const [redFlagAlert, setRedFlagAlert] = useState<string | null>(null);
 
   // Dark mode effect
   useEffect(() => {
@@ -215,10 +226,73 @@ const App: React.FC = () => {
                 patientName: userProfile.name || 'Patient',
                 doctorSpecialty: dept,
                 preferredDate: time.split('T')[0] || new Date().toISOString().split('T')[0],
-                preferredTime: '10:00 AM', // Default for voice
+                preferredTime: '10:00 AM',
                 notes: res || ''
               }, 'voice')}
             />
+
+            {/* AI Severity Checker Card */}
+            <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🩺</span>
+                <h3 className="font-semibold text-slate-100">AI Symptom Checker</h3>
+                <span className="text-xs text-slate-400 bg-slate-700 px-2 py-0.5 rounded-full ml-auto">Instant Severity Assessment</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={symptomInput}
+                  onChange={e => setSymptomInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && symptomInput.trim()) {
+                      const rf = checkRedFlags(symptomInput);
+                      if (rf.triggered) {
+                        setRedFlagAlert(rf.emergencyMessage);
+                        setSeverityResult(null);
+                      } else {
+                        setSeverityResult(classifySeverityFromText(symptomInput));
+                        setRedFlagAlert(null);
+                      }
+                    }
+                  }}
+                  placeholder="Describe your symptoms (e.g. chest pain, fever...)"
+                  className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                />
+                <button
+                  onClick={() => {
+                    if (!symptomInput.trim()) return;
+                    const rf = checkRedFlags(symptomInput);
+                    if (rf.triggered) {
+                      setRedFlagAlert(rf.emergencyMessage);
+                      setSeverityResult(null);
+                    } else {
+                      setSeverityResult(classifySeverityFromText(symptomInput));
+                      setRedFlagAlert(null);
+                    }
+                  }}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl transition-colors"
+                >
+                  Check
+                </button>
+              </div>
+              {redFlagAlert && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-3 text-sm">
+                  {redFlagAlert}
+                  <div className="mt-2 flex gap-2">
+                    <a href="tel:112" className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg">📞 Call 112</a>
+                    <button onClick={() => setRedFlagAlert(null)} className="text-xs text-red-300 underline">Dismiss</button>
+                  </div>
+                </div>
+              )}
+              {severityResult && (
+                <SeverityBanner
+                  result={severityResult}
+                  symptoms={[symptomInput]}
+                  onBookAppointment={() => setShowAppointments(true)}
+                  onEmergency={() => setRedFlagAlert('🚨 Please call emergency services: 112 (India) / 911 (US)')}
+                  onDismiss={() => setSeverityResult(null)}
+                />
+              )}
+            </div>
 
             <VoiceSelector
               selectedVoiceId={selectedVoiceId}
@@ -232,6 +306,7 @@ const App: React.FC = () => {
           {/* Right Column */}
           <div className="space-y-6">
             <TranscriptionView entries={transcriptions} />
+            <FollowUpMonitor appointments={appointments} patientName={userProfile.name} />
           </div>
         </div>
       </main>
@@ -256,6 +331,9 @@ const App: React.FC = () => {
       <footer className="bg-white border-t py-4 text-center text-slate-500 text-sm no-print">
         <p>&copy; 2025 med_ai. For demonstration purposes only. Always consult a professional for medical emergencies.</p>
       </footer>
+
+      {/* LoadDashboard Modal */}
+      <LoadDashboard isOpen={showLoadDashboard} onClose={() => setShowLoadDashboard(false)} />
 
       {/* Modals */}
       <UserProfileModal
@@ -290,6 +368,15 @@ const App: React.FC = () => {
         onCancel={handleCancelAppointment}
         patientName={userProfile.name}
       />
+
+      {/* Load Dashboard floating trigger */}
+      <button
+        onClick={() => setShowLoadDashboard(true)}
+        className="fixed bottom-6 left-6 z-30 flex items-center gap-2 bg-slate-800 border border-slate-600 hover:border-cyan-500 text-slate-300 hover:text-cyan-400 px-3 py-2 rounded-xl text-xs font-medium transition-all shadow-lg no-print"
+        title="Predictive Load Dashboard"
+      >
+        📊 Load Dashboard
+      </button>
     </div>
   );
 };
