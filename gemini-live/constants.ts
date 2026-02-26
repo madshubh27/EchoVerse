@@ -2,7 +2,7 @@
 import { Type, FunctionDeclaration } from '@google/genai';
 import { Language } from './types';
 
-export const GEMINI_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
+export const GEMINI_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 export const INPUT_SAMPLE_RATE = 16000;
 export const OUTPUT_SAMPLE_RATE = 24000;
 

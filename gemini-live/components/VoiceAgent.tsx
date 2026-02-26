@@ -141,21 +141,17 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
         try {
           const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
-          // Input audio context (mic)
+          // Input audio context (mic, 16kHz)
           audioContextInRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
-          // Ensure context is resumed (required by most browsers)
           if (audioContextInRef.current.state === 'suspended') {
             await audioContextInRef.current.resume();
           }
 
-          // Output audio context (ElevenLabs)
+          // Output audio context (Gemini native audio, 24kHz)
           audioContextOutRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
           if (audioContextOutRef.current.state === 'suspended') {
             await audioContextOutRef.current.resume();
           }
-
-          // Init ElevenLabs TTS
-          ttsRef.current = new ElevenLabsTTS(elevenLabsApiKey, selectedVoiceId, audioContextOutRef.current);
 
           streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -166,18 +162,42 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
 
           const systemInstruction = getSystemInstruction(language, userProfile);
 
+          // PCM audio buffer queue for smooth playback
+          let nextPlayTime = 0;
+
+          const playPCM = (base64Data: string) => {
+            if (!audioContextOutRef.current) return;
+            const raw = atob(base64Data);
+            const int16 = new Int16Array(raw.length / 2);
+            for (let i = 0; i < int16.length; i++) {
+              int16[i] = (raw.charCodeAt(i * 2)) | (raw.charCodeAt(i * 2 + 1) << 8);
+            }
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) {
+              float32[i] = int16[i] / 32768;
+            }
+            const buffer = audioContextOutRef.current.createBuffer(1, float32.length, 24000);
+            buffer.getChannelData(0).set(float32);
+            const source = audioContextOutRef.current.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContextOutRef.current.destination);
+            const startTime = Math.max(audioContextOutRef.current.currentTime, nextPlayTime);
+            source.start(startTime);
+            nextPlayTime = startTime + buffer.duration;
+          };
+
           const sessionPromise = ai.live.connect({
             model: GEMINI_MODEL,
             config: {
-              // TEXT modality — Gemini sends text, ElevenLabs converts to speech
-              responseModalities: [Modality.TEXT],
+              responseModalities: [Modality.AUDIO],
               systemInstruction,
               tools: [{ functionDeclarations: HEALTHCARE_TOOLS }],
               inputAudioTranscription: {},
+              outputAudioTranscription: {},
             },
             callbacks: {
               onopen: () => {
-                console.log('Gemini Live Session Opened (TEXT mode + ElevenLabs TTS)');
+                console.log('Gemini Live Session Opened (AUDIO mode)');
                 setStatus(SessionStatus.ACTIVE);
                 sessionStartRef.current = Date.now();
 
@@ -188,58 +208,61 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
                 analyser.connect(scriptProcessor);
 
                 scriptProcessor.onaudioprocess = (e) => {
-                  if (status !== SessionStatus.ACTIVE) return;
-
+                  if (!sessionRef.current) return;
                   const inputData = e.inputBuffer.getChannelData(0);
                   const pcmBlob = createBlob(inputData);
-
-                  // Only send if session is active and open
-                  sessionPromise.then(session => {
-                    if (session && sessionRef.current) {
-                      try {
-                        session.sendRealtimeInput({ media: pcmBlob });
-                      } catch (err) {
-                        console.warn('Failed to send audio chunk:', err);
-                      }
-                    }
-                  });
+                  try {
+                    sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                  } catch (err) {
+                    console.warn('Failed to send audio chunk:', err);
+                  }
                 };
 
                 scriptProcessor.connect(audioContextInRef.current!.destination);
               },
 
               onmessage: async (message: LiveServerMessage) => {
-                // Collect streamed text parts
+                // Play audio output from Gemini
+                const audioParts = message.serverContent?.modelTurn?.parts?.filter(p => p.inlineData?.mimeType?.startsWith('audio/'));
+                if (audioParts?.length) {
+                  for (const part of audioParts) {
+                    if (part.inlineData?.data) {
+                      playPCM(part.inlineData.data);
+                    }
+                  }
+                }
+
+                // Collect text parts (may appear alongside audio)
                 const textPart = message.serverContent?.modelTurn?.parts?.find(p => p.text);
                 if (textPart?.text) {
                   pendingTextRef.current += textPart.text;
                 }
 
-                // When turn is complete — speak accumulated text via ElevenLabs
+                // Turn complete — save transcript
                 if (message.serverContent?.turnComplete) {
-                  // Save transcript
+                  nextPlayTime = 0; // Reset audio queue
                   if (currentInputTranscription.current) {
                     onTranscription('user', currentInputTranscription.current);
                     currentInputTranscription.current = '';
                   }
                   if (pendingTextRef.current.trim()) {
                     onTranscription('assistant', pendingTextRef.current.trim());
+                    pendingTextRef.current = '';
                   }
-                  // Speak via ElevenLabs
-                  await flushTextToTTS();
                 }
 
-                // STT transcript from user
-                if (message.serverContent?.inputTranscription) {
+                // STT transcript from user audio
+                if (message.serverContent?.inputTranscription?.text) {
                   currentInputTranscription.current += message.serverContent.inputTranscription.text;
+                }
+
+                // Output transcript (Gemini's own speech transcript)
+                if (message.serverContent?.outputTranscription?.text) {
+                  pendingTextRef.current += message.serverContent.outputTranscription.text;
                 }
 
                 // Tool handling
                 if (message.toolCall) {
-                  // Cancel any ongoing speech for tool calls
-                  ttsRef.current?.cancel();
-                  pendingTextRef.current = '';
-
                   for (const fc of message.toolCall.functionCalls) {
                     onToolCall({ id: fc.id, name: fc.name, args: fc.args });
                     const result = handleToolResponse(fc.name, fc.args);
@@ -249,33 +272,38 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
                       triggerReminderNotification(fc.args);
                     }
 
-                    sessionPromise.then(session => {
-                      session.sendToolResponse({
-                        functionResponses: {
-                          id: fc.id,
-                          name: fc.name,
-                          response: { result },
-                        }
-                      });
+                    sessionRef.current?.sendToolResponse({
+                      functionResponses: {
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result },
+                      }
                     });
                   }
                 }
 
-                // If interrupted, cancel TTS immediately
+                // If interrupted, reset audio queue
                 if (message.serverContent?.interrupted) {
-                  ttsRef.current?.cancel();
+                  nextPlayTime = 0;
                   pendingTextRef.current = '';
                 }
               },
 
-              onerror: (e) => {
+              onerror: (e: any) => {
                 console.error('Gemini error:', e);
-                onError('A connection error occurred with the AI agent.');
+                const msg = e?.message || JSON.stringify(e) || 'Connection error';
+                onError(`AI Agent Error: ${msg}`);
                 stopAudio();
               },
-              onclose: () => {
-                console.log('Gemini Live Session Closed');
-                setStatus(SessionStatus.IDLE);
+              onclose: (e: any) => {
+                console.log('Gemini Live Session Closed', e);
+                const code = e?.code;
+                const reason = e?.reason || '';
+                console.log(`Close code: ${code}, reason: ${reason}`);
+                if (code && code !== 1000) {
+                  onError(`Connection dropped (code ${code}): ${reason || 'Check your API key quota at aistudio.google.com'}`);
+                }
+                stopAudio();
               },
             }
           });
