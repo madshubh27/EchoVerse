@@ -293,7 +293,107 @@ body {
   padding: 8px 16px;
   width: 100%;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
+
+.agent-error-retry {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--error);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.agent-error-retry:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+/* ── Browser warning banner ──────────────────── */
+.browser-warning-banner {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  width: 100%;
+  text-align: center;
+}
+
+/* ── Phase label colour variants ─────────────── */
+.phase-listening  { color: var(--success) !important; }
+.phase-thinking   { color: var(--warning) !important; }
+.phase-speaking   { color: #60a5fa !important; }
+.phase-error      { color: var(--error) !important; }
+.phase-connecting { color: var(--warning) !important; }
+
+/* ── ErrorBoundary fallback ──────────────────── */
+.error-boundary-fallback {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  padding: 20px;
+}
+.error-boundary-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 40px 32px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  backdrop-filter: blur(20px);
+}
+.error-boundary-icon { font-size: 48px; }
+.error-boundary-card h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.error-boundary-card p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.error-boundary-detail {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  padding: 10px 14px;
+  width: 100%;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.error-boundary-btn {
+  background: var(--accent-gradient);
+  border: none;
+  border-radius: var(--radius-full);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 28px;
+  transition: opacity 0.2s;
+}
+.error-boundary-btn:hover { opacity: 0.85; }
 
 /* ── Panels ────────────────────────────────────── */
 .panels-section {

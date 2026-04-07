@@ -9,6 +9,51 @@
 
 ---
 
+## 🚀 Deploying to Vercel (medai-nine.vercel.app)
+
+The `client/` directory is a self-contained Vite + React app with serverless API routes in `client/api/`.
+
+### 1. Import into Vercel
+- Go to [vercel.com/new](https://vercel.com/new) → Import repo.
+- **Root Directory**: set to `client` (not the repo root).
+- Framework: **Vite** (auto-detected from `vercel.json`).
+
+### 2. Set Environment Variables in Vercel
+
+Go to **Project → Settings → Environment Variables** and add:
+
+| Variable | Required? | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | Recommended | `sk-…` key for GPT-4o-mini. Without it, demo-mode responses are used. |
+| `LIVEKIT_URL` | Optional | `wss://your-project.livekit.cloud` for WebRTC voice (LiveKit mode). |
+| `LIVEKIT_API_KEY` | Optional | LiveKit API key. |
+| `LIVEKIT_API_SECRET` | Optional | LiveKit API secret. |
+
+> **⚠️ Never put API keys in `VITE_*` variables** — they would be exposed in the browser bundle.
+> All keys above are consumed only by the serverless API routes (`/api/*`).
+
+### 3. Verify Deployment
+
+```bash
+# Health check (should return {"status":"ok"})
+curl https://medai-nine.vercel.app/api/health
+
+# Chat endpoint (should return AI or demo response)
+curl -X POST https://medai-nine.vercel.app/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"hello"}]}'
+```
+
+### Local development (Vercel CLI)
+```bash
+cd client
+npm install
+cp .env.example .env.local   # adjust if needed
+npx vercel dev               # runs API routes + Vite together
+```
+
+---
+
 ## Architecture
 
 ```
