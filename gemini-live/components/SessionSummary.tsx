@@ -24,9 +24,10 @@ const SessionSummary: React.FC<SessionSummaryProps> = ({
         return `${m} min ${s} sec`;
     };
 
+    const finalTranscriptions = transcriptions.filter(t => !t.isPartial);
     const uniqueTopics = [...new Set(toolCalls.map(t => t.name.replace(/([A-Z])/g, ' $1').trim()))];
-    const userMessages = transcriptions.filter(t => t.role === 'user');
-    const assistantMessages = transcriptions.filter(t => t.role === 'assistant');
+    const userMessages = finalTranscriptions.filter(t => t.role === 'user');
+    const assistantMessages = finalTranscriptions.filter(t => t.role === 'assistant');
 
     const handlePrint = () => {
         window.print();
@@ -64,7 +65,7 @@ const SessionSummary: React.FC<SessionSummaryProps> = ({
                             <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Duration</p>
                         </div>
                         <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 text-center">
-                            <p className="text-2xl font-bold text-green-600">{transcriptions.length}</p>
+                            <p className="text-2xl font-bold text-green-600">{finalTranscriptions.length}</p>
                             <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Messages</p>
                         </div>
                         <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 text-center">
@@ -91,11 +92,11 @@ const SessionSummary: React.FC<SessionSummaryProps> = ({
                                 </div>
                             </div>
                         )}
-                        {transcriptions.length > 0 && (
+                        {finalTranscriptions.length > 0 && (
                             <div>
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Key Exchanges</p>
                                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {transcriptions.slice(-6).map((t, i) => (
+                                    {finalTranscriptions.slice(-6).map((t, i) => (
                                         <p key={i} className={`text-xs p-2 rounded-lg ${t.role === 'user' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300'}`}>
                                             <span className="font-bold">{t.role === 'user' ? 'You' : 'med_ai'}:</span> {t.text.slice(0, 120)}{t.text.length > 120 ? '...' : ''}
                                         </p>

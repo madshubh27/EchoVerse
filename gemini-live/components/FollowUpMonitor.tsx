@@ -68,11 +68,11 @@ const FollowUpMonitor: React.FC<FollowUpMonitorProps> = ({ appointments, patient
     if (completedAppts.length === 0) return null;
 
     return (
-        <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-5 space-y-4">
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-slate-800/60 p-5 shadow-lg shadow-black/20 backdrop-blur-xl">
             <div className="flex items-center gap-2">
                 <span className="text-lg">🔄</span>
                 <h3 className="font-semibold text-slate-100">AI Follow-Up Monitor</h3>
-                <span className="text-xs text-slate-400 bg-slate-700 px-2 py-0.5 rounded-full ml-auto">
+                <span className="ml-auto rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-400">
                     {completedAppts.length} tracked
                 </span>
             </div>
@@ -82,11 +82,11 @@ const FollowUpMonitor: React.FC<FollowUpMonitorProps> = ({ appointments, patient
                     const apptFollowUps = getFollowUpsForAppt(appt.id);
                     const latest = apptFollowUps[apptFollowUps.length - 1];
                     return (
-                        <div key={appt.id} className="border border-slate-700/50 rounded-xl p-4 space-y-3">
+                        <div key={appt.id} className="space-y-3 rounded-xl border border-white/5 bg-slate-900/45 p-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <div className="text-sm font-medium text-slate-200">{appt.doctorSpecialty}</div>
-                                    <div className="text-xs text-slate-400">{appt.preferredDate}</div>
+                                    <div className="text-sm font-medium text-slate-100">{appt.doctorSpecialty}</div>
+                                    <div className="text-xs text-slate-500">{appt.preferredDate}</div>
                                 </div>
                                 {latest && (
                                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${trendColors[latest.trend]}`}>
@@ -119,18 +119,18 @@ const FollowUpMonitor: React.FC<FollowUpMonitorProps> = ({ appointments, patient
                                         value={checkInText}
                                         onChange={e => setCheckInText(e.target.value)}
                                         placeholder="How are you feeling today? Describe your symptoms..."
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2 text-sm text-slate-200 placeholder-slate-500 resize-none h-20 focus:outline-none focus:border-cyan-500"
+                                        className="h-20 w-full resize-none rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-slate-200 placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
                                     />
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => handleCheckIn(appt.id)}
-                                            className="flex-1 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                                                className="flex-1 rounded-lg bg-cyan-600 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cyan-700"
                                         >
                                             Submit Check-In
                                         </button>
                                         <button
                                             onClick={() => setCheckInFor(null)}
-                                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition-colors"
+                                                className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:bg-slate-700"
                                         >
                                             Cancel
                                         </button>
@@ -139,7 +139,7 @@ const FollowUpMonitor: React.FC<FollowUpMonitorProps> = ({ appointments, patient
                             ) : (
                                 <button
                                     onClick={() => setCheckInFor(appt.id)}
-                                    className="w-full py-1.5 border border-dashed border-slate-600 hover:border-cyan-500 text-xs text-slate-400 hover:text-cyan-400 rounded-lg transition-colors"
+                                        className="w-full rounded-lg border border-dashed border-slate-700 py-1.5 text-xs text-slate-500 transition-colors hover:border-cyan-500 hover:text-cyan-400"
                                 >
                                     + Daily Check-In
                                 </button>

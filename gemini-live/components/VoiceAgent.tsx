@@ -16,7 +16,7 @@ interface VoiceAgentProps {
   setStatus: (status: SessionStatus) => void;
   onStart: () => void;
   onEnd: () => void;
-  onTranscription: (role: 'user' | 'assistant', text: string) => void;
+  onTranscription: (role: 'user' | 'assistant', text: string, options?: { isPartial?: boolean; replaceLast?: boolean }) => void;
   onToolCall: (call: Omit<ToolCallEntry, 'timestamp'>) => void;
   onToolResult: (id: string, result: any) => void;
   onError: (error: string) => void;
@@ -242,11 +242,11 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
                 if (message.serverContent?.turnComplete) {
                   nextPlayTime = 0; // Reset audio queue
                   if (currentInputTranscription.current) {
-                    onTranscription('user', currentInputTranscription.current);
+                    onTranscription('user', currentInputTranscription.current, { replaceLast: true });
                     currentInputTranscription.current = '';
                   }
                   if (pendingTextRef.current.trim()) {
-                    onTranscription('assistant', pendingTextRef.current.trim());
+                    onTranscription('assistant', pendingTextRef.current.trim(), { replaceLast: true });
                     pendingTextRef.current = '';
                   }
                 }
@@ -254,11 +254,13 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
                 // STT transcript from user audio
                 if (message.serverContent?.inputTranscription?.text) {
                   currentInputTranscription.current += message.serverContent.inputTranscription.text;
+                  onTranscription('user', currentInputTranscription.current, { isPartial: true });
                 }
 
                 // Output transcript (Gemini's own speech transcript)
                 if (message.serverContent?.outputTranscription?.text) {
                   pendingTextRef.current += message.serverContent.outputTranscription.text;
+                  onTranscription('assistant', pendingTextRef.current, { isPartial: true });
                 }
 
                 // Tool handling
@@ -335,23 +337,23 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
   const hasElevenLabsKey = elevenLabsApiKey && elevenLabsApiKey !== 'your_elevenlabs_api_key_here';
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center space-y-6">
+    <div className="rounded-2xl border border-white/10 bg-slate-800/60 p-8 text-center shadow-lg shadow-black/20 backdrop-blur-xl flex flex-col items-center justify-center space-y-6">
       <div className="relative">
-        <div className={`w-40 h-40 rounded-full flex items-center justify-center transition-all duration-500 shadow-inner ${status === SessionStatus.ACTIVE ? 'bg-blue-50' : 'bg-slate-50'
+        <div className={`w-40 h-40 rounded-full flex items-center justify-center transition-all duration-500 shadow-inner ${status === SessionStatus.ACTIVE ? 'bg-slate-900/70' : 'bg-slate-900/80'
           }`}>
           <AudioVisualizer active={status === SessionStatus.ACTIVE} analyserNode={analyserNode} />
-          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-700 ${status === SessionStatus.ACTIVE ? 'border-blue-200 animate-pulse' : 'border-slate-100'
+          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-700 ${status === SessionStatus.ACTIVE ? 'border-blue-300/50 animate-pulse' : 'border-white/10'
             }`}></div>
         </div>
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-2xl font-bold text-slate-800">
+        <h2 className="text-2xl font-bold text-slate-100">
           {status === SessionStatus.IDLE && 'Ready to Help'}
           {status === SessionStatus.CONNECTING && 'Establishing Secure Connection...'}
           {status === SessionStatus.ACTIVE && "I'm Listening..."}
         </h2>
-        <p className="text-slate-500 max-w-sm mx-auto text-sm">
+        <p className="mx-auto max-w-sm text-sm text-slate-400">
           {status === SessionStatus.IDLE && 'Click start to speak with your personal healthcare assistant.'}
           {status === SessionStatus.ACTIVE && 'Ask about symptoms, medications, find clinics, or book an appointment.'}
         </p>
@@ -359,10 +361,10 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
         {/* ElevenLabs status indicator */}
         {status === SessionStatus.IDLE && (
           <div className={`inline-flex items-center space-x-1.5 text-xs px-3 py-1 rounded-full mt-1 ${hasElevenLabsKey
-            ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-            : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+            ? 'bg-purple-500/15 text-purple-300'
+            : 'bg-amber-500/15 text-amber-300'
             }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${hasElevenLabsKey ? 'bg-purple-500' : 'bg-amber-500'}`}></span>
+            <span className={`w-1.5 h-1.5 rounded-full ${hasElevenLabsKey ? 'bg-purple-400' : 'bg-amber-400'}`}></span>
             <span>{hasElevenLabsKey ? 'ElevenLabs TTS Active' : 'ElevenLabs API key not set — add to .env.local'}</span>
           </div>
         )}
@@ -372,7 +374,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
         {status === SessionStatus.IDLE ? (
           <button
             onClick={onStart}
-            className="group flex items-center space-x-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-full font-bold shadow-lg shadow-blue-200 transition-all transform hover:scale-105 active:scale-95"
+            className="group flex items-center space-x-3 rounded-full bg-blue-600 px-8 py-4 font-bold text-white shadow-lg shadow-blue-500/25 transition-all hover:scale-105 hover:bg-blue-500 active:scale-95"
           >
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
@@ -382,7 +384,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
         ) : (
           <button
             onClick={stopAudio}
-            className="flex items-center space-x-3 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-8 py-4 rounded-full font-bold transition-all"
+            className="flex items-center space-x-3 rounded-full border border-red-400/30 bg-red-500/10 px-8 py-4 font-bold text-red-300 transition-all hover:bg-red-500/20"
           >
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
@@ -394,7 +396,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
 
       {status === SessionStatus.ACTIVE && (
         <div className="flex items-center space-x-4 text-xs">
-          <div className="flex items-center space-x-1.5 text-slate-400 bg-slate-50 px-3 py-1 rounded-full">
+          <div className="flex items-center space-x-1.5 rounded-full bg-slate-700/80 px-3 py-1 text-slate-200">
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -402,7 +404,7 @@ const VoiceAgent: React.FC<VoiceAgentProps> = ({
             <span>LIVE</span>
           </div>
           {hasElevenLabsKey && (
-            <div className="flex items-center space-x-1.5 text-purple-500 bg-purple-50 dark:bg-purple-900/20 px-3 py-1 rounded-full">
+            <div className="flex items-center space-x-1.5 rounded-full bg-purple-500/10 px-3 py-1 text-purple-300">
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" />
               </svg>

@@ -12,18 +12,18 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoiceId, onVoiceC
     const selectedVoice = ELEVENLABS_VOICES.find(v => v.voice_id === selectedVoiceId);
 
     return (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 p-4">
-            <div className="flex items-center space-x-2 mb-3">
-                <div className="w-7 h-7 bg-purple-100 dark:bg-purple-900/50 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="rounded-2xl border border-white/10 bg-slate-800/60 p-4 shadow-lg shadow-black/20 backdrop-blur-xl">
+            <div className="mb-3 flex items-center space-x-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/15">
+                    <svg className="h-4 w-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072M12 6v12M9.172 9.172a4 4 0 000 5.656M6.343 6.343a8 8 0 000 11.314" />
                     </svg>
                 </div>
                 <div>
-                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">AI Voice</h4>
-                    <p className="text-[10px] text-slate-400">Powered by ElevenLabs</p>
+                    <h4 className="text-sm font-bold text-slate-100">AI Voice</h4>
+                    <p className="text-[10px] text-slate-500">Powered by ElevenLabs</p>
                 </div>
-                <span className="ml-auto text-[10px] bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full font-bold">11LABS</span>
+                <span className="ml-auto rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-bold text-purple-300">11LABS</span>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -32,30 +32,30 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoiceId, onVoiceC
                         key={voice.voice_id}
                         onClick={() => !disabled && onVoiceChange(voice.voice_id)}
                         disabled={disabled}
-                        className={`text-left px-3 py-2 rounded-lg border transition-all text-xs ${selectedVoiceId === voice.voice_id
-                                ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/30 dark:border-purple-600'
-                                : 'border-slate-100 dark:border-slate-700 hover:border-slate-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                        className={`text-left rounded-xl border px-3 py-2 text-xs transition-all ${selectedVoiceId === voice.voice_id
+                                ? 'border-purple-400/60 bg-purple-500/15'
+                                : 'border-slate-700 bg-slate-900/50 hover:border-slate-500 hover:bg-slate-900'
+                            } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                     >
                         <div className="flex items-center space-x-2">
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${selectedVoiceId === voice.voice_id
-                                    ? 'bg-purple-500 text-white'
-                                    : 'bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-400'
+                            <div className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${selectedVoiceId === voice.voice_id
+                                    ? 'bg-purple-400 text-slate-950'
+                                    : 'bg-slate-700 text-slate-300'
                                 }`}>
                                 {voice.name[0]}
                             </div>
                             <div>
-                                <p className={`font-semibold ${selectedVoiceId === voice.voice_id ? 'text-purple-700 dark:text-purple-300' : 'text-slate-700 dark:text-slate-300'}`}>
+                                <p className={`font-semibold ${selectedVoiceId === voice.voice_id ? 'text-purple-200' : 'text-slate-200'}`}>
                                     {voice.name}
                                 </p>
-                                <p className="text-[10px] text-slate-400 leading-tight">{voice.description}</p>
+                                <p className="leading-tight text-[10px] text-slate-500">{voice.description}</p>
                             </div>
                         </div>
                     </button>
                 ))}
             </div>
             {disabled && (
-                <p className="text-[10px] text-slate-400 mt-2 text-center">Cannot change voice during an active call</p>
+                <p className="mt-2 text-center text-[10px] text-slate-500">Cannot change voice during an active call</p>
             )}
         </div>
     );

@@ -1,17 +1,23 @@
 {
   "name": "callagent",
   "version": "1.0.0",
-  "description": "A outbound calling agent ",
+  "description": "An outbound calling agent using Twilio and ElevenLabs",
   "main": "agent.js",
   "scripts": {
+    "start": "node agent.js",
+    "dev": "nodemon agent.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "k.boopathi",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.7.0",
     "dotenv": "^17.0.0",
     "express": "^4.21.2",
     "twilio": "^5.4.3",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
   }
 }

@@ -3,21 +3,83 @@ const { WebSocketServer, WebSocket } = require("ws");
 const Twilio = require("twilio");
 const { createServer } = require("http");
 const dotenv = require("dotenv");
+const axios = require("axios");
 
 dotenv.config();
+
+// --- Env Validation ---
+const REQUIRED_ENV_VARS = [
+  "AGENT_ID",
+  "API_KEY",
+  "TWILIO_ACC",
+  "TWILIO_KEY",
+  "FROM_NUMBER",
+  "SERVER_URL",
+];
+for (const key of REQUIRED_ENV_VARS) {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
 
 const app = express();
 app.use(express.json());
 
 const server = createServer(app);
-
 const websocket = new WebSocketServer({ noServer: true });
+
+// --- Rate Limiting (simple in-memory) ---
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 5; // max 5 calls per minute per IP
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { windowStart: now, count: 1 });
+    return false;
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) return true;
+  return false;
+}
+
+// --- Health Check ---
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
+});
+
+// --- Phone number validation (E.164) ---
+function isValidE164(number) {
+  return /^\+[1-9]\d{1,14}$/.test(number);
+}
 
 // Endpoint to initiate an outbound call
 app.get("/outbound-call", (req, res) => {
+  // Rate limiting
+  const clientIp = req.ip || req.connection.remoteAddress;
+  if (isRateLimited(clientIp)) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many requests. Please try again later.",
+    });
+  }
+
+  // Input validation
+  const toNumber = req.query.toNumber;
+  if (!toNumber || !isValidE164(toNumber)) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Invalid or missing 'toNumber' query parameter. Use E.164 format, e.g. +14155551234",
+    });
+  }
+
   const twilioClient = new Twilio(
-    process.env.TWILIO_ACC, // Twilio Account SID from environment variables
-    process.env.TWILIO_KEY // Twilio Auth Token from environment variables
+    process.env.TWILIO_ACC,
+    process.env.TWILIO_KEY
   );
 
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
@@ -27,12 +89,11 @@ app.get("/outbound-call", (req, res) => {
       </Connect>
     </Response>`;
 
-  // Create the call using Twilio API and initiate the WebSocket stream
   twilioClient.calls
     .create({
       from: process.env.FROM_NUMBER,
-      to: req.query.toNumber,
-      twiml: twimlResponse, // The TwiML response containing WebSocket stream information
+      to: toNumber,
+      twiml: twimlResponse,
     })
     .then((call) => {
       res.send({
@@ -42,6 +103,7 @@ app.get("/outbound-call", (req, res) => {
       });
     })
     .catch((error) => {
+      console.error("Failed to initiate call:", error.message);
       res.status(500).send({
         success: false,
         message: "Failed to initiate call",
@@ -49,6 +111,7 @@ app.get("/outbound-call", (req, res) => {
       });
     });
 });
+
 // Handle WebSocket connection from Twilio
 websocket.on("connection", async (ws) => {
   let elevenWs;
@@ -60,7 +123,7 @@ websocket.on("connection", async (ws) => {
   await setupElevenLabs();
 
   // Handle WebSocket errors
-  ws.on("error", (err) => console.log("Error on Twilio WebSocket:", err));
+  ws.on("error", (err) => console.error("Error on Twilio WebSocket:", err));
 
   // Handle incoming messages from Twilio
   ws.on("message", (message) => {
@@ -74,12 +137,9 @@ websocket.on("connection", async (ws) => {
 
         case "media":
           if (elevenWs?.readyState === WebSocket.OPEN) {
-            console.log(`Received media from Twilio: StreamSid ${streamSid}`);
+            // Send payload directly — it's already base64 from Twilio
             const audioMessage = {
-              user_audio_chunk: Buffer.from(
-                msg.media.payload,
-                "base64"
-              ).toString("base64"),
+              user_audio_chunk: msg.media.payload,
             };
             elevenWs.send(JSON.stringify(audioMessage));
           }
@@ -113,8 +173,6 @@ websocket.on("connection", async (ws) => {
       );
       elevenWs = new WebSocket(data.signed_url);
 
-      // elevenWs = new WebSocket("ws://localhost:7860/ws");
-
       elevenWs.on("open", () => console.log("Connected to Eleven Labs"));
       elevenWs.on("message", (data) =>
         handleElevenLabsMessages(JSON.parse(data))
@@ -125,6 +183,8 @@ websocket.on("connection", async (ws) => {
       elevenWs.on("close", () => console.log("Disconnected from Eleven Labs"));
     } catch (error) {
       console.error("Error setting up Eleven Labs WebSocket:", error);
+      // Close the Twilio WebSocket since we can't process audio without ElevenLabs
+      ws.close();
     }
   }
 
@@ -137,7 +197,10 @@ websocket.on("connection", async (ws) => {
             event: "media",
             streamSid,
             media: {
-              payload: message.audio_event.audio_base_64 || message.audio.chunk,
+              payload:
+                message.audio_event?.audio_base_64 ||
+                message.audio?.chunk ||
+                "",
             },
           };
           ws.send(JSON.stringify(audioData));
@@ -179,7 +242,21 @@ server.on("upgrade", (request, socket, head) => {
   }
 });
 
+// --- Graceful Shutdown ---
+function shutdown(signal) {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+  // Force exit after 5 seconds if server hasn't closed
+  setTimeout(() => process.exit(1), 5000);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
 // Start the server on port 8080
-server.listen(8080, () => {
-  console.log(`Server is running on port 8080`);
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

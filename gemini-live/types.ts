@@ -24,6 +24,7 @@ export interface TranscriptionEntry {
   role: 'user' | 'assistant';
   text: string;
   timestamp: number;
+  isPartial?: boolean;
 }
 
 export interface ToolCallEntry {

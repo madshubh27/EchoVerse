@@ -2,12 +2,34 @@
 // Emergency Red Flag Detection Service
 
 export const RED_FLAGS = [
-    'chest pain', 'heart attack', 'difficulty breathing', 'can\'t breathe',
-    'shortness of breath', 'stroke symptoms', 'loss of consciousness',
-    'severe bleeding', 'signs of heart attack', 'unconscious', 'seizure',
-    'anaphylaxis', 'severe allergic reaction', 'paralysis', 'not breathing',
-    'choking', 'overdose', 'poisoning', 'severe burns', 'deep wound',
+    'acute chest pain', 'myocardial infarction', 'respiratory distress', 'severe dyspnea',
+    'acute coronary syndrome', 'stroke', 'altered consciousness', 'loss of consciousness',
+    'massive hemorrhage', 'acute myocardial infarction', 'unconscious', 'status epilepticus',
+    'anaphylactic shock', 'anaphylaxis', 'acute paralysis', 'apnea',
+    'airway obstruction', 'drug overdose', 'toxic ingestion', 'severe thermal burns', 'penetrating trauma',
+    'acute abdomen', 'severe shock', 'life-threatening arrhythmia',
 ];
+
+const RED_FLAG_PATTERNS: Array<{ pattern: RegExp; flag: string }> = [
+    { pattern: /\b(chest pain|pressure in chest|tight chest|pain in chest)\b/, flag: 'chest pain' },
+    { pattern: /\b(shortness of breath|difficulty breathing|trouble breathing|breathless|wheezing)\b/, flag: 'shortness of breath' },
+    { pattern: /\b(chest pain.*shortness of breath|shortness of breath.*chest pain)\b/, flag: 'chest pain with shortness of breath' },
+    { pattern: /\b(loss of consciousness|unconscious|passed out|fainted)\b/, flag: 'loss of consciousness' },
+    { pattern: /\b(stroke|face droop|arm weakness|speech difficulty|slurred speech)\b/, flag: 'stroke' },
+    { pattern: /\b(anaphylaxis|anaphylactic shock|allergic reaction with swelling|throat closing)\b/, flag: 'anaphylaxis' },
+    { pattern: /\b(vomiting blood|coughing blood|blood in stool|black stool)\b/, flag: 'bleeding' },
+    { pattern: /\b(severe trauma|major trauma|deep wound|penetrating trauma)\b/, flag: 'trauma' },
+    { pattern: /\b(overdose|drug overdose|toxic ingestion|poisoning)\b/, flag: 'overdose' },
+    { pattern: /\b(apnea|not breathing|stopped breathing)\b/, flag: 'apnea' },
+];
+
+function normalizeText(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
 
 export interface RedFlagResult {
     triggered: boolean;
@@ -18,15 +40,28 @@ export interface RedFlagResult {
 }
 
 export function checkRedFlags(symptomInput: string): RedFlagResult {
-    const lower = symptomInput.toLowerCase();
+    const lower = normalizeText(symptomInput);
+
+    for (const { pattern, flag } of RED_FLAG_PATTERNS) {
+        if (pattern.test(lower)) {
+            return {
+                triggered: true,
+                matchedFlag: flag,
+                emergencyMessage: `🚨 CRITICAL: "${flag}" detected. Call Emergency Services immediately. Do NOT delay.`,
+                nearbyER: 'Locate nearest trauma center via Google Maps or call emergency dispatch',
+                ambulanceNumber: '108 (India - Ambulance) / 911 (US) / 999 (UK)',
+            };
+        }
+    }
+
     for (const flag of RED_FLAGS) {
         if (lower.includes(flag)) {
             return {
                 triggered: true,
                 matchedFlag: flag,
-                emergencyMessage: `🚨 Emergency: "${flag}" detected. Do NOT delay — call emergency services immediately.`,
-                nearbyER: 'Find nearest emergency room at google.com/maps/search/emergency+room+near+me',
-                ambulanceNumber: '112 (India) / 911 (US)',
+                emergencyMessage: `🚨 CRITICAL: "${flag}" detected. Call Emergency Services immediately. Do NOT delay.`,
+                nearbyER: 'Locate nearest trauma center via Google Maps or call emergency dispatch',
+                ambulanceNumber: '108 (India - Ambulance) / 911 (US) / 999 (UK)',
             };
         }
     }

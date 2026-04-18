@@ -44,15 +44,15 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     )
 
     stt = AzureSTTService(
-        api_key=os.getenv("AZURE_SPEACH_API_KEY"),
-        endpoint=os.getenv("AZURE_SPEACH_ENDPOINT"),
+        api_key=os.getenv("AZURE_SPEECH_API_KEY"),
+        endpoint=os.getenv("AZURE_SPEECH_ENDPOINT"),
         region="eastus",
         sample_rate=8000,
     )
 
     tts = AzureTTSService(
-        api_key=os.getenv("AZURE_SPEACH_API_KEY"),
-        endpoint=os.getenv("AZURE_SPEACH_ENDPOINT"),
+        api_key=os.getenv("AZURE_SPEECH_API_KEY"),
+        endpoint=os.getenv("AZURE_SPEECH_ENDPOINT"),
         region="eastus",
     )
 

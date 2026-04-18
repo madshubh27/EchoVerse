@@ -2,149 +2,47 @@ import WebSocket from "ws";
 import express from "express";
 import dotenv from "dotenv";
 import Twilio from "twilio";
-import axios from "axios";
 import { AzureOpenAI } from "openai";
-import fs from "fs";
-import * as uuid from "uuid";
 import {
-  ChatCompletion,
-  ChatCompletionMessageParam,
   ChatCompletionSystemMessageParam,
   ChatCompletionUserMessageParam,
 } from "openai/resources/index.mjs";
-import Content from "twilio/lib/rest/Content";
-
 import * as speechSdk from "microsoft-cognitiveservices-speech-sdk";
-import EventEmitter from "events";
-
-import { WaveFile } from "wavefile";
 
 dotenv.config({ path: "../.env" });
 
 const PORT = process.env.PORT || 5050;
-// console.log = () => {};
 
-function getTimestamp() {
-  return new Date().toISOString().replace(/Z$/, "") + "Z";
+// --- Env Validation ---
+const REQUIRED_ENV_VARS = [
+  "AZURE_TTS_TOKEN",
+  "AZURE_BASE_URL",
+  "AZURE_OPENAI_API_KEY",
+  "AZURE_API_VERSION",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "FROM_NUMBER",
+  "TO_NUMBER",
+  "SERVER_URL",
+];
+for (const key of REQUIRED_ENV_VARS) {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
 }
 
-function getSSML(text) {
-  const voice = "zh-CN-YunyangNeural";
-  return `
-        <speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" version="1.0" xml:lang="zh-CN">
-            <voice name="${voice}">
-               ${text}
-            </voice>
-        </speak>
-    `;
-}
-
-abstract class baseWorkflow {
-  pipe(consumer): baseWorkflow {
+abstract class BaseWorkflow {
+  pipe(consumer: BaseWorkflow): BaseWorkflow {
     return consumer;
   }
 
-  listener(data) {}
+  listener(data: any) { }
 }
 
-// class AzureTTS extends baseWorkflow {
-//   ws: WebSocket;
-//   requestId;
-//   consumer: baseWorkflow;
-//   constructor() {
-//     super();
-//     this.requestId = uuid.v4().replace(/-/g, "").toUpperCase();
-//   }
-
-//   async connect() {
-//     if (this.ws) {
-//       return;
-//     }
-//     const authToken = await this.getAzureAuthToken();
-//     await new Promise((res, rej) => {
-//       this.ws = new WebSocket(
-//         `wss://eastus.tts.speech.microsoft.com/cognitiveservices/websocket/v1?Authorization=${authToken}&X-ConnectionId=${this.requestId}`
-//       );
-
-//       this.ws.on("open", () => {
-//         console.log("AZURE OPENED");
-//         this.ws.send(
-//           `Path : speech.config\r\nX-RequestId: ${
-//             this.requestId
-//           }\r\nX-Timestamp: ${getTimestamp()}\r\nContent-Type: application/json\r\n\r\n{"context":{"system":{"name":"SpeechSDK","version":"1.12.1","os":{"platform":"Node.js"}}}}`
-//         );
-//         this.ws.send(
-//           `Path : synthesis.context\r\nX-RequestId: ${
-//             this.requestId
-//           }\r\nX-Timestamp: ${getTimestamp()}\r\nContent-Type: application/json\r\n\r\n{"synthesis":{"audio":{"outputFormat":"raw-8khz-8bit-mono-mulaw"}}}`
-//         );
-//         res("");
-//       });
-//       this.ws.on("message", (msg) => this.handleMessage(msg));
-
-//       this.ws.on("error", (err) => console.log("AzureTTS", err));
-//       this.ws.on("close", () => console.log("closed"));
-//     });
-//   }
-
-//   handleMessage(data: any) {
-//     const tdata = data.toString();
-//     console.log("AZURE MESAGE");
-//     if (typeof tdata === "string" && tdata.includes("Path:turn.end")) {
-//       console.log("Azure TTS streaming complete.");
-//     } else if (tdata.includes("Path:audio")) {
-//       const dataView = new DataView(data.buffer);
-
-//       const headerLength = dataView.getInt16(0);
-
-//       let body = "";
-
-//       if (data.byteLength > headerLength + 2) {
-//         body = data.slice(2 + headerLength);
-//       }
-
-//       this.consumer.listener(Buffer.from(body).toString("base64"));
-//     }
-//   }
-
-//   sendText(text) {
-//     console.log("[AZURETTS] REQUEST", text);
-//     this.ws.send(
-//       `Path: ssml\r\nX-RequestId: ${
-//         this.requestId
-//       }\r\nX-Timestamp: ${getTimestamp()}\r\nContent-Type: application/ssml+xml\r\n\r\n${getSSML(
-//         text
-//       )}`
-//     );
-//   }
-
-//   async getAzureAuthToken() {
-//     const response = await axios.post(
-//       "https://eastus.api.cognitive.microsoft.com/sts/v1.0/issueToken",
-//       {},
-//       {
-//         headers: {
-//           "Content-type": "application/x-www-form-urlencoded",
-//           "Ocp-Apim-Subscription-Key": process.env.AZURE_TTS_TOKEN,
-//         },
-//       }
-//     );
-//     return response.data;
-//   }
-
-//   pipe(consumer: baseWorkflow) {
-//     this.consumer = consumer;
-//     return consumer;
-//   }
-
-//   async listener(data) {
-//     this.sendText(data);
-//   }
-// }
-
-class AzureTTS extends baseWorkflow {
+class AzureTTS extends BaseWorkflow {
   synthesizer: speechSdk.SpeechSynthesizer;
-  consumer?: baseWorkflow;
+  consumer?: BaseWorkflow;
 
   constructor() {
     super();
@@ -159,15 +57,13 @@ class AzureTTS extends baseWorkflow {
     speechConfig.speechSynthesisOutputFormat =
       speechSdk.SpeechSynthesisOutputFormat.Raw8Khz8BitMonoMULaw;
 
-    const audioConfig = speechSdk.AudioConfig.fromDefaultSpeakerOutput();
-    this.synthesizer = new speechSdk.SpeechSynthesizer(
-      speechConfig,
-      audioConfig
-    );
+    // Use null audio config — we'll capture raw bytes from the result instead
+    // of routing to the default speaker (which doesn't exist on a server)
+    this.synthesizer = new speechSdk.SpeechSynthesizer(speechConfig, null as any);
   }
 
   sendText(text: string): void {
-    console.log("[AZURETTS] REQUEST", text);
+    console.log("[AzureTTS] REQUEST", text);
     this.synthesizer.speakTextAsync(
       text,
       (result) => {
@@ -182,21 +78,15 @@ class AzureTTS extends baseWorkflow {
           }
         } else {
           console.error("Error during synthesis:", result.errorDetails);
-          if (this.consumer) {
-            this.consumer.listener(`Error: ${result.errorDetails}`);
-          }
         }
       },
       (error) => {
         console.error("Synthesis error:", error);
-        if (this.consumer) {
-          this.consumer.listener(`Error: ${error}`);
-        }
       }
     );
   }
 
-  pipe(consumer: baseWorkflow): baseWorkflow {
+  pipe(consumer: BaseWorkflow): BaseWorkflow {
     this.consumer = consumer;
     return consumer;
   }
@@ -207,15 +97,15 @@ class AzureTTS extends baseWorkflow {
   }
 }
 
-class AzureSTT extends baseWorkflow {
-  pushStream;
-  recognizer;
+class AzureSTT extends BaseWorkflow {
+  pushStream: speechSdk.PushAudioInputStream;
+  recognizer: speechSdk.SpeechRecognizer;
   convertedText = "";
-  consumer;
+  consumer?: BaseWorkflow;
 
   constructor() {
     super();
-    const subscriptionKey = process.env.AZURE_TTS_TOKEN;
+    const subscriptionKey = process.env.AZURE_TTS_TOKEN as string;
     const serviceRegion = "eastus";
     const speechConfig = speechSdk.SpeechConfig.fromSubscription(
       subscriptionKey,
@@ -239,7 +129,7 @@ class AzureSTT extends baseWorkflow {
   }
 
   setupEventHandlers() {
-    this.recognizer.recognized = (s, e) => {
+    this.recognizer.recognized = (_s, e) => {
       if (e.result.reason === speechSdk.ResultReason.RecognizedSpeech) {
         console.log(`RECOGNIZED: Text=${e.result.text}`);
         this.convertedText += e.result.text.trim();
@@ -250,26 +140,20 @@ class AzureSTT extends baseWorkflow {
       }
     };
 
-    this.recognizer.canceled = (s, e) => {
+    this.recognizer.canceled = (_s, e) => {
       console.error(`CANCELED: ${e.reason}`);
       if (e.reason === speechSdk.CancellationReason.Error) {
         console.error(`CANCELED: ErrorCode=${e.errorCode}`);
         console.error(`CANCELED: ErrorDetails=${e.errorDetails}`);
-        if (this.consumer) {
-          this.consumer.listener(`Error: ${e.errorDetails}`);
-        }
       }
     };
 
-    this.recognizer.sessionStopped = (s, e) => {
+    this.recognizer.sessionStopped = (_s, _e) => {
       console.log("Azure Speech session stopped.");
-      if (this.consumer) {
-        this.consumer.listener("Session stopped");
-      }
     };
   }
 
-  async send(payload) {
+  async send(payload: string) {
     const buffer = Buffer.from(payload, "base64");
     const pcmBuffer = convertMuLawToPCM(buffer);
     this.pushStream.write(pcmBuffer);
@@ -285,29 +169,30 @@ class AzureSTT extends baseWorkflow {
     });
   }
 
-  pipe(consumer) {
+  pipe(consumer: BaseWorkflow): BaseWorkflow {
     this.consumer = consumer;
     return consumer;
   }
 
-  async listener(data) {
+  async listener(data: string) {
     console.time("AzureSTT");
     this.send(data);
   }
 }
 
-class AzureOpenAIWrapper extends baseWorkflow {
+class AzureOpenAIWrapper extends BaseWorkflow {
   conversation: Array<
     ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
   > = [
-    {
-      role: "system",
-      content:
-        "You are an elementary teacher in an audio call. Your output will be converted to audio so don't include special characters in your answers. Respond to what the student said in a short short sentence.",
-    },
-  ];
+      {
+        role: "system",
+        content:
+          "You are an elementary teacher in an audio call. Your output will be converted to audio so don't include special characters in your answers. Respond to what the student said in a short short sentence.",
+      },
+    ];
   openAI: AzureOpenAI;
-  consumer: baseWorkflow;
+  consumer!: BaseWorkflow;
+
   constructor() {
     super();
     this.openAI = new AzureOpenAI({
@@ -317,9 +202,8 @@ class AzureOpenAIWrapper extends baseWorkflow {
     });
   }
 
-  async handleMessage(data) {
+  async handleMessage(data: string) {
     this.convert(data);
-    console.log(this.conversation);
     console.time("AzureOPENAI");
     const response = await this.openAI.chat.completions.create({
       messages: this.conversation,
@@ -328,31 +212,15 @@ class AzureOpenAIWrapper extends baseWorkflow {
     console.log("[AzureOpenAI] RESPONSE", response.choices[0].message.content);
     this.consumer.listener(response.choices[0].message.content);
     console.timeEnd("AzureOPENAI");
-    // const stream = await this.openAI.chat.completions.create({
-    //   messages: this.conversation,
-    //   model: "gpt-4o-mini",
-    //   stream: true,
-    // });
-
-    // let fullResponse = "";
-    // for await (const chunk of stream) {
-    //   const content = chunk.choices[0]?.delta?.content;
-    //   if (content) {
-    //     fullResponse += content;
-    //     this.consumer.listener(content);
-    //   }
-    // }
-
-    // console.log("[AzureOpenAI] RESPONSE", fullResponse);
   }
 
-  convert(data) {
+  convert(data: string) {
     if (data) {
       this.conversation.push({ role: "user", content: data });
     }
   }
 
-  pipe(consumer: baseWorkflow) {
+  pipe(consumer: BaseWorkflow): BaseWorkflow {
     this.consumer = consumer;
     return consumer;
   }
@@ -363,23 +231,23 @@ class AzureOpenAIWrapper extends baseWorkflow {
   }
 }
 
-class TwilioWrapper extends baseWorkflow {
-  consumer: baseWorkflow;
-  ws: WebSocket;
+class TwilioWrapper extends BaseWorkflow {
+  consumer!: BaseWorkflow;
+  ws: WebSocket | null = null;
   twilio: ReturnType<typeof Twilio>;
-  streamSid: string;
-  callInfo;
+  streamSid: string = "";
+  callInfo: { from: string; to: string };
 
-  constructor(callInfo) {
+  constructor(callInfo: { from: string; to: string }) {
     super();
     this.callInfo = callInfo;
     this.twilio = Twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
+      process.env.TWILIO_ACCOUNT_SID!,
+      process.env.TWILIO_AUTH_TOKEN!
     );
   }
 
-  setWs(ws) {
+  setWs(ws: WebSocket) {
     if (!this.ws) {
       this.ws = ws;
     }
@@ -387,57 +255,38 @@ class TwilioWrapper extends baseWorkflow {
 
   start() {
     this.twilio.calls.create({
-      twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://2ad4-115-97-68-190.ngrok-free.app/media-stream"/></Connect></Response>`,
+      twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://${process.env.SERVER_URL}/media-stream"/></Connect></Response>`,
       to: this.callInfo.to,
       from: this.callInfo.from,
     });
   }
 
-  messageHandler(message) {
-    // console.log("message");
+  messageHandler(message: any) {
     this.streamSid = message.streamSid;
     if (message.event === "media") {
       this.consumer.listener(message.media.payload);
     }
   }
 
-  pipe(consumer: baseWorkflow): baseWorkflow {
+  pipe(consumer: BaseWorkflow): BaseWorkflow {
     this.consumer = consumer;
     return consumer;
   }
 
   listener(data: any): void {
-    this.ws.send(
-      JSON.stringify({
-        event: "media",
-        streamSid: this.streamSid,
-        media: { payload: data },
-      })
-    );
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          event: "media",
+          streamSid: this.streamSid,
+          media: { payload: data },
+        })
+      );
+    }
   }
 }
 
-const app = express();
-
-const callAgent = new TwilioWrapper({
-  from: `+${process.env.FROM_NUMBER}`,
-  to: `+${process.env.TO_NUMBER}`,
-});
-
-const azureSTT = new AzureSTT();
-const azureTTS = new AzureTTS();
-const azureOpenAI = new AzureOpenAIWrapper();
-
-callAgent.pipe(azureSTT).pipe(azureOpenAI).pipe(azureTTS).pipe(callAgent);
-
-app.get("/trigger-call", async (req, res) => {
-  callAgent.start();
-  await res.json({ message: "Call initiated successfully." });
-});
-
-const wss = new WebSocket.Server({ noServer: true });
-
-function convertMuLawToPCM(muLawBuffer) {
+function convertMuLawToPCM(muLawBuffer: Buffer): Buffer {
   const pcmBuffer = Buffer.alloc(muLawBuffer.length * 2);
   for (let i = 0; i < muLawBuffer.length; i++) {
     const muLawByte = muLawBuffer[i];
@@ -445,24 +294,70 @@ function convertMuLawToPCM(muLawBuffer) {
     pcmBuffer.writeInt16LE(pcmVal, i * 2);
   }
   return pcmBuffer;
-  function muLawToLinear(muLawByte) {
-    muLawByte = ~muLawByte & 0xff;
-    const MULAW_BIAS = 33;
-    const sign = muLawByte & 0x80;
-    const exponent = (muLawByte >> 4) & 0x07;
-    const mantissa = muLawByte & 0x0f;
-    let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
-    return sign !== 0 ? -sample : sample;
-  }
 }
 
-wss.on("connection", async (websocket) => {
-  callAgent.setWs(websocket);
-  websocket.on("message", async (message: any) => {
-    const data = JSON.parse(message);
+function muLawToLinear(muLawByte: number): number {
+  muLawByte = ~muLawByte & 0xff;
+  const MULAW_BIAS = 33;
+  const sign = muLawByte & 0x80;
+  const exponent = (muLawByte >> 4) & 0x07;
+  const mantissa = muLawByte & 0x0f;
+  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
+  return sign !== 0 ? -sample : sample;
+}
 
-    callAgent.messageHandler(JSON.parse(message));
+// --- App Setup ---
+const app = express();
+
+// Health check
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
+});
+
+// Create per-call instances
+app.get("/trigger-call", async (_req, res) => {
+  const callAgent = new TwilioWrapper({
+    from: `+${process.env.FROM_NUMBER}`,
+    to: `+${process.env.TO_NUMBER}`,
+  });
+
+  const azureSTT = new AzureSTT();
+  const azureTTS = new AzureTTS();
+  const azureOpenAI = new AzureOpenAIWrapper();
+
+  callAgent.pipe(azureSTT).pipe(azureOpenAI).pipe(azureTTS).pipe(callAgent);
+
+  // Store for WS association
+  activeAgents.push({ callAgent, azureSTT });
+
+  callAgent.start();
+  res.json({ message: "Call initiated successfully." });
+});
+
+const activeAgents: { callAgent: TwilioWrapper; azureSTT: AzureSTT }[] = [];
+
+const wss = new WebSocket.Server({ noServer: true });
+
+wss.on("connection", async (websocket) => {
+  // Find an agent without a WS connection
+  const entry = activeAgents.find((a) => !a.callAgent.ws);
+  if (!entry) {
+    console.error("No active agent waiting for WebSocket connection.");
+    websocket.close();
     return;
+  }
+
+  entry.callAgent.setWs(websocket);
+
+  websocket.on("message", async (message: any) => {
+    entry.callAgent.messageHandler(JSON.parse(message));
+  });
+
+  websocket.on("close", () => {
+    entry.azureSTT.stop();
+    const idx = activeAgents.indexOf(entry);
+    if (idx !== -1) activeAgents.splice(idx, 1);
+    console.log("Call cleaned up.");
   });
 });
 
@@ -477,4 +372,20 @@ server.on("upgrade", (request, socket, head) => {
   });
 });
 
-process.env.NODE_NO_WARNINGS = '1';
+// --- Graceful Shutdown ---
+function shutdown(signal: string) {
+  console.log(`Received ${signal}. Shutting down...`);
+  for (const entry of activeAgents) {
+    entry.azureSTT.stop();
+  }
+  activeAgents.length = 0;
+  server.close(() => {
+    console.log("Server closed.");
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.env.NODE_NO_WARNINGS = "1";

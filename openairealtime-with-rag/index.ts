@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import express from "express";
 import dotenv from "dotenv";
 import Twilio from "twilio";
+import { randomUUID } from "crypto";
 import {
   LangfuseGenerationClient,
   LangfuseSpanClient,
@@ -21,6 +22,24 @@ import { QdrantVectorStore } from "@llamaindex/qdrant";
 import { OpenAI, OpenAIEmbedding } from "@llamaindex/openai";
 
 dotenv.config({ path: "../.env" });
+
+// --- Env Validation ---
+const REQUIRED_ENV_VARS = [
+  "OPENAI_API_KEY",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "FROM_NUMBER",
+  "TO_NUMBER",
+  "SERVER_URL",
+  "QUADRANT_URL",
+  "QUADRANT_COLLECTION",
+];
+for (const key of REQUIRED_ENV_VARS) {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
 
 Settings.llm = new OpenAI({
   model: "gpt-4o-mini",
@@ -62,17 +81,16 @@ interface SessionConfig {
   turn_detection?: TurnDetectionServerVad | null;
   tools?: ToolDefinition[];
   tool_choice?:
-    | "auto"
-    | "none"
-    | "required"
-    | { type: "function"; name: string };
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; name: string };
   temperature?: number;
   max_response_output_tokens?: number | "inf";
 }
 
 class RAGWrapper {
-  retriever: RetrieverQueryEngine;
-  constructor() {}
+  retriever!: RetrieverQueryEngine;
 
   async setUp() {
     this.retriever = (
@@ -85,13 +103,13 @@ class RAGWrapper {
     ).asQueryEngine();
   }
 
-  async getRelvantContext(query: string): Promise<string> {
+  async getRelevantContext(query: string): Promise<string> {
     const { message, sourceNodes } = await this.retriever.query({
       query,
     });
     let context = `CONTEXT\n`;
     if (sourceNodes) {
-      sourceNodes.forEach((source, index) => {
+      sourceNodes.forEach((source) => {
         context += (source.node as TextNode).text;
       });
     }
@@ -115,15 +133,12 @@ class OpenAIHandler {
           },
         }
       );
-      const messages = [];
+
       this.ws.on("open", () => onResponseCallback({ type: "ws_open" }));
       this.ws.on("message", (data) => {
         const parsedData = JSON.parse(data.toString());
         if (!parsedData.type.includes("response.audio")) {
           console.log(data.toString());
-          //  @ts-ingore
-          messages.push(parsedData);
-          //   fs.writeFileSync("./opeai.json", JSON.stringify(messages));
         }
         traceRealtimeEvent(parsedData, realtimeCallback);
         onResponseCallback(parsedData);
@@ -191,47 +206,53 @@ class OpenAIHandler {
   }
 }
 
-const PROMPT = `
-hai  
+const SYSTEM_PROMPT = `
+You are a helpful and knowledgeable AI call agent. When a user asks a question,
+you should use the context_retriever tool to search your knowledge base for
+relevant information before answering.
+
+Guidelines:
+1. Be concise and professional in your responses.
+2. Always retrieve context before attempting to answer domain-specific questions.
+3. If the retrieved context doesn't contain relevant information, let the user know honestly.
+4. Speak naturally as this is a phone conversation — avoid special characters, markdown, or code formatting.
+5. Keep responses short and conversational.
 `;
 
 class CallAgent {
-  contextReteriver: RAGWrapper;
+  contextRetriever: RAGWrapper;
   openAIHandler: OpenAIHandler;
   twilio: ReturnType<typeof Twilio>;
-  callInfo;
-  twilioWs: WebSocket;
-  openAIWs: WebSocket;
-  streamSid: string;
+  callInfo: { from: string; to: string };
+  twilioWs: WebSocket | null = null;
+  streamSid: string = "";
 
-  constructor(callInfo) {
+  constructor(callInfo: { from: string; to: string }) {
     this.callInfo = callInfo;
-    this.contextReteriver = new RAGWrapper();
+    this.contextRetriever = new RAGWrapper();
     this.openAIHandler = new OpenAIHandler();
     this.twilio = Twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
+      process.env.TWILIO_ACCOUNT_SID!,
+      process.env.TWILIO_AUTH_TOKEN!
     );
   }
 
   async call() {
-    await this.contextReteriver.setUp();
+    await this.contextRetriever.setUp();
 
     this.twilio.calls.create({
-      twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://9dd2-183-82-241-102.ngrok-free.app"/></Connect></Response>`,
+      twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://${process.env.SERVER_URL}"/></Connect></Response>`,
       to: this.callInfo.to,
       from: this.callInfo.from,
     });
 
-    this.openAIHandler.connect(this.openAImessageHandler.bind(this));
+    this.openAIHandler.connect(this.openAIMessageHandler.bind(this));
   }
 
-  async openAImessageHandler(message) {
+  async openAIMessageHandler(message: any) {
     switch (message.type) {
       case "ws_open":
-        // TODO SYSTEM PTOMPT
-        await this.openAIHandler.initializeSession(PROMPT);
-        //ADD TOOL
+        await this.openAIHandler.initializeSession(SYSTEM_PROMPT);
         await this.openAIHandler.addTool([
           {
             type: "function",
@@ -250,19 +271,21 @@ class CallAgent {
             },
           },
         ]);
+        break; // ← Fixed: was missing, caused fall-through
 
       case "input_audio_buffer.speech_started":
-        if (this.twilioWs)
+        if (this.twilioWs) {
           this.twilioWs.send(
             JSON.stringify({
               event: "clear",
               streamSid: this.streamSid,
             })
           );
+        }
         break;
 
       case "response.audio.delta":
-        if (this.twilioWs)
+        if (this.twilioWs) {
           this.twilioWs.send(
             JSON.stringify({
               event: "media",
@@ -270,38 +293,55 @@ class CallAgent {
               media: { payload: message.delta },
             })
           );
+        }
         break;
 
       case "conversation.interrupted":
         break;
 
       case "conversation.item.input_audio_transcription.completed":
+        console.log("User transcript:", message.transcript);
         break;
+
       case "response.content_part.done":
         console.log("response.content_part.done", message);
         break;
+
       case "conversation.item.created":
         break;
+
       case "response.function_call_arguments.done":
-        const context = await this.contextReteriver.getRelvantContext(
-          JSON.parse(message.arguments)
-        );
-        console.log("CONTEXT GOT", context, JSON.parse(message.arguments));
-        if (context) {
-          this.openAIHandler.createConversation(context);
+        try {
+          const args = JSON.parse(message.arguments);
+          const context = await this.contextRetriever.getRelevantContext(
+            args.query
+          );
+          console.log("CONTEXT GOT", context, args);
+          if (context) {
+            this.openAIHandler.createConversation(context);
+          }
+        } catch (err) {
+          console.error("Error processing function call:", err);
         }
         break;
-      case "response.content_part.done":
-        console.log("response.content_part.done", message);
-        break;
+
       case "error":
         console.error("Error:", message.error);
+        break;
+
+      default:
+        // Ignore other event types silently
         break;
     }
   }
 
-  twilioMessageHandler(message) {
-    this.streamSid = message.streamSid;
+  twilioMessageHandler(message: any) {
+    if (message.start) {
+      this.streamSid = message.start.streamSid;
+    }
+    if (message.streamSid) {
+      this.streamSid = message.streamSid;
+    }
     if (message.event === "media") {
       this.openAIHandler.sendAudio(message.media.payload);
     }
@@ -312,26 +352,59 @@ class CallAgent {
       this.twilioWs = ws;
     }
   }
+
+  cleanup() {
+    this.openAIHandler.close();
+    this.twilioWs = null;
+    this.streamSid = "";
+  }
 }
+
 const app = express();
 
-const callAgent = new CallAgent({
-  from: `+${process.env.FROM_NUMBER}`,
-  to: `+${process.env.TO_NUMBER}`,
+// Health check endpoint
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
 });
 
+// Create a new CallAgent per trigger (not a global singleton)
 app.get("/trigger-call", async (req, res) => {
+  const callAgent = new CallAgent({
+    from: `+${process.env.FROM_NUMBER}`,
+    to: `+${process.env.TO_NUMBER}`,
+  });
+
+  // Store the agent so the WebSocket handler can find it
+  activeCallAgents.set(callAgent.callInfo.to, callAgent);
+
   callAgent.call();
-  await res.json({ message: "Call initiated successfully." });
+  res.json({ message: "Call initiated successfully." });
 });
+
+// Track active call agents by their target number
+const activeCallAgents = new Map<string, CallAgent>();
 
 const wss = new WebSocket.Server({ noServer: true });
 
 wss.on("connection", async (websocket) => {
-  callAgent.setTwilioWs(websocket);
-  websocket.on("message", async (message: any) => {
-    callAgent.twilioMessageHandler(JSON.parse(message));
-  });
+  // Find the most recently created agent that doesn't have a WS yet
+  for (const [key, agent] of activeCallAgents) {
+    if (!agent.twilioWs) {
+      agent.setTwilioWs(websocket);
+
+      websocket.on("message", async (message: any) => {
+        agent.twilioMessageHandler(JSON.parse(message));
+      });
+
+      websocket.on("close", () => {
+        agent.cleanup();
+        activeCallAgents.delete(key);
+        console.log(`Call agent for ${key} cleaned up.`);
+      });
+
+      break;
+    }
+  }
 });
 
 const server = app.listen(PORT, () => {
@@ -344,6 +417,24 @@ server.on("upgrade", (request, socket, head) => {
     wss.emit("connection", ws);
   });
 });
+
+// --- Graceful Shutdown ---
+function shutdown(signal: string) {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  for (const [, agent] of activeCallAgents) {
+    agent.cleanup();
+  }
+  activeCallAgents.clear();
+  server.close(() => {
+    console.log("Server closed.");
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+// === Langfuse Tracing ===
 
 type RealtimeUsage = {
   total_tokens: number;
@@ -371,7 +462,7 @@ class RealtimeCallback {
       baseUrl: process.env.LANGFUSE_HOST,
     });
     this.trace = langfuse.trace({
-      sessionId: "test" + Math.random() * 1000,
+      sessionId: randomUUID(),
       userId: "call-agent",
     });
   }
@@ -386,7 +477,7 @@ class RealtimeCallback {
       transcript: string;
     }[]
   ) {
-    const span = this.trace.span({
+    const span = this.trace!.span({
       name: "UserMessage",
       input: content.map((item) => {
         let text: string | undefined;
@@ -416,7 +507,7 @@ class RealtimeCallback {
   }
 
   onUserAudioTranscript(id: string, transcript: string, error?: unknown) {
-    const span: LangfuseSpanClient = this.spans[id];
+    const span: LangfuseSpanClient = this.spans[id] as LangfuseSpanClient;
 
     if (!span) return;
 
@@ -444,7 +535,7 @@ class RealtimeCallback {
   }
 
   onToolCall(id: string, name: string, args: Record<string, unknown>) {
-    const span = this.trace.span({
+    const span = this.trace!.span({
       name: "ToolCall",
       input: {
         id,
@@ -472,7 +563,7 @@ class RealtimeCallback {
   }
 
   onAiResponseCreated(id: string) {
-    const generation = this.trace.generation({
+    const generation = this.trace!.generation({
       name: "AiResponse",
       model: "gpt-4o-realtime-preview",
       input: {
@@ -488,7 +579,7 @@ class RealtimeCallback {
     error?: Record<string, unknown>,
     usage?: RealtimeUsage
   ) {
-    const generation: LangfuseGenerationClient = this.spans[id];
+    const generation = this.spans[id] as LangfuseGenerationClient;
     if (!generation) return;
 
     const hasError = isNotEmptyObject(error);
@@ -512,16 +603,16 @@ class RealtimeCallback {
     }
 
     if (isNotEmptyObject(usage)) {
-      const inputTokens = usage.input_tokens;
-      const outputTokens = usage.output_tokens;
+      const inputTokens = usage!.input_tokens;
+      const outputTokens = usage!.output_tokens;
 
-      const inputTextTokens = usage.input_token_details?.text_tokens || 0;
-      const inputAudioTokens = usage.input_token_details?.audio_tokens || 0;
+      const inputTextTokens = usage!.input_token_details?.text_tokens || 0;
+      const inputAudioTokens = usage!.input_token_details?.audio_tokens || 0;
       const inputCost =
         (inputTextTokens / 1e6) * 5 + (inputAudioTokens / 1e6) * 100;
 
-      const outputTextTokens = usage.output_token_details?.text_tokens || 0;
-      const outputAudioTokens = usage.output_token_details?.audio_tokens || 0;
+      const outputTextTokens = usage!.output_token_details?.text_tokens || 0;
+      const outputAudioTokens = usage!.output_token_details?.audio_tokens || 0;
       const outputCost =
         (outputTextTokens / 1e6) * 20 + (outputAudioTokens / 1e6) * 200;
 
@@ -570,7 +661,7 @@ class RealtimeCallback {
       spanConfig.level = "ERROR";
     }
 
-    const span = this.trace.span(spanConfig);
+    const span = this.trace!.span(spanConfig);
     span.end();
   }
 

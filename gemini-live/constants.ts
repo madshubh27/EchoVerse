@@ -28,7 +28,7 @@ export const HEALTHCARE_TOOLS: FunctionDeclaration[] = [
       properties: {
         department: {
           type: Type.STRING,
-          description: 'The medical department (e.g., Cardiology, Pediatrics, General Medicine).'
+          description: 'Medical specialty: Internal Medicine, Cardiology, Pediatrics, Neurology, Obstetrics & Gynecology, Dermatology.'
         },
         preferredTime: {
           type: Type.STRING,
